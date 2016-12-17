@@ -8,9 +8,9 @@ Allow control on :
 
 Material needed : 
 - arduino uno
-- [dht11 temperature & humidity sensor]
+- dht11 temperature & humidity sensor
 - [i2c 20x4 LCD from DFRobot](https://www.dfrobot.com/wiki/index.php/I2C_TWI_LCD2004_Module_(Arduino/Gadgeteer_Compatible))
-- [8 optoisolated relay module from Sainsmart](http://www.sainsmart.com/8-channel-dc-5v-relay-module-for-arduino-pic-arm-dsp-avr-msp430-ttl-logic.html)
+- [8 optoisolated relay module from Sainsmart](http://www.sainsmart.com/8-channel-dc-5v-relay-module-n hvais chez joae, soit jreste a quebec, soit jpart en califor-arduino-pic-arm-dsp-avr-msp430-ttl-logic.html)
 - jumpers and wires
 
 Version of arduino IDE : 1.6.12
