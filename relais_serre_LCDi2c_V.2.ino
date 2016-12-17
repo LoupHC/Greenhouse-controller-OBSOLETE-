@@ -1,19 +1,14 @@
-#include <HID.h>
+#include <DHT.h>
+#define DHTPIN A1
+#define DHTTYPE    DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
-#include <dht.h>
 #include <Wire.h>
 #include <LCD.h>
 #include <LiquidCrystal_I2C.h>
 
-#define dht_apin A0
-
-dht DHT;
-
 #define I2C_ADDR    0x22  // Define I2C Address where the PCF8574A is
 #define BACKLIGHT_PIN     3
-
-int n = 1;
-
 LiquidCrystal_I2C  lcd(I2C_ADDR,2,1,0,4,5,6,7);
 /* 
  *  En_pin  2
@@ -23,6 +18,7 @@ LiquidCrystal_I2C  lcd(I2C_ADDR,2,1,0,4,5,6,7);
  *  D5_pin  5
  *  D6_pin  6
  *  D7_pin  7 
+ */
  */
 //**********BLOC PROGRAMMABLE*************
 //Températures critiques et hysteresis
@@ -229,9 +225,8 @@ void setFan(int fanCommand){
 
 void loop() {    
 
-  DHT.read11(dht_apin);
-  float greenhouseTemperature = DHT.temperature;
-  float greenhouseHumidity = DHT.humidity;
+  float greenhouseTemperature = dht.readTemperature();
+  float greenhouseHumidity = dht.readHumidity();
   Serial.print(greenhouseTemperature);//Affichage de la temperature
   Serial.println ("C");
   Serial.print(greenhouseHumidity);//Affichage de l'humidité
