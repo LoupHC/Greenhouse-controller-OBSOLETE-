@@ -1,4 +1,4 @@
-# Greenhouse-controller
+# Greenhouse-controller (with time-zones)
 A cheap but efficient controller for small-scale farmers looking to automate their greenhouse.
 Allow control on : 
 - 3 time-zones with different temperature settings and activation temperature for each devices
