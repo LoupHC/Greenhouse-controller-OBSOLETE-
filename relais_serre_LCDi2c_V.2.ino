@@ -1,8 +1,4 @@
-#include <DHT.h>
-#define DHTPIN A1
-#define DHTTYPE    DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
+//--------------LCD 20x4--------------------
 #include <Wire.h>
 #include <LCD.h>
 #include <LiquidCrystal_I2C.h>
@@ -10,19 +6,40 @@ DHT dht(DHTPIN, DHTTYPE);
 #define I2C_ADDR    0x22  // Define I2C Address where the PCF8574A is
 #define BACKLIGHT_PIN     3
 LiquidCrystal_I2C  lcd(I2C_ADDR,2,1,0,4,5,6,7);
-/* 
- *  En_pin  2
- *  Rw_pin  1
- *  Rs_pin  0
- *  D4_pin  4
- *  D5_pin  5
- *  D6_pin  6
- *  D7_pin  7 
+/* En_pin  2, Rw_pin  1, Rs_pin  0, D4_pin  4, D5_pin  5, D6_pin  6, D7_pin  7 
  */
- */
+//--------------DHT11--------------------
+#include <DHT.h>
+#define DHTPIN A1
+//--------------Relais--------------------
+//Sorties
+const int ROLLUP1_POWER = 12;//relais on/off - moteur1
+const int ROLLUP1_DIRECTION = 11; //relais gauche/droite - moteur1
+const int ROLLUP2_POWER = 10; //relais on/off - moteur2
+const int ROLLUP2_DIRECTION = 9; //relais gauche/droite - moteur2
+const int FAN = 8; //relais ventilation forcée
+const int CHAUFFAGE1 = 7; //relais fournaise1
+const int CHAUFFAGE2 = 6; // relais fournaise2
+
+//vocabulaire
+const int CLOSE = HIGH;
+const int OPEN = LOW;
+const int ON = LOW;
+const int OFF = HIGH;
+
+//consignes initiales
+int opened = 0;
+boolean heating1 = false; //fournaise 1 éteinte par défaut
+boolean heating2 = false; //fournaise 2 éteinte par défaut
+boolean fan = false;//ventilation forcée éteinte par défaut
+float greenhouseTemperature = 20.0; //température par défaut : 20C (ajusté après un cycle)
+#define DHTTYPE    DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+
+
 //**********BLOC PROGRAMMABLE*************
 //Températures critiques et hysteresis
-
 //Rollup:
 const int TEMP_ROLLUP = 20; //température d'activation des rollup
 const int HYST_ROLLUP = 2;
@@ -48,36 +65,15 @@ const int SLEEPTIME = 1000; //temps de pause entre chaque exécution du programm
 
 //*************FIN DU BLOC PROGRAMMABLE**********
 
-//Entrées
-const int THERMOMETER_IN = A0;// sonde de température DHT11
-//Sorties
-const int ROLLUP1_POWER = 12;//relais on/off - moteur1
-const int ROLLUP1_DIRECTION = 11; //relais gauche/droite - moteur1
-const int ROLLUP2_POWER = 10; //relais on/off - moteur2
-const int ROLLUP2_DIRECTION = 9; //relais gauche/droite - moteur2
-const int FAN = 8; //relais ventilation forcée
-const int CHAUFFAGE1 = 7; //relais fournaise1
-const int CHAUFFAGE2 = 6; // relais fournaise2
-
-//vocabulaire
-const int CLOSE = HIGH;
-const int OPEN = LOW;
-const int ON = LOW;
-const int OFF = HIGH;
-
-//consignes initiales
-int opened = 0;
-boolean heating1 = false; //fournaise 1 éteinte par défaut
-boolean heating2 = false; //fournaise 2 éteinte par défaut
-boolean fan = false;//ventilation forcée éteinte par défaut
-float greenhouseTemperature = 20.0; //température par défaut : 20C (ajusté après un cycle)
-
 
 //********INITIALISATION DU PROGRAMME**********
 void setup() {
-  Serial.begin(9600);   // démarre la communication sérielle 
+  Serial.begin(9600);   // démarre la communication sérielle
+  Serial.println("");
   Serial.println("Starting");
-   lcd.begin (20,4); //démarre l'affichage LCD
+  Serial.println("-----------------------");
+//--------------LCD 20x4--------------------
+  lcd.begin (20,4); //démarre l'affichage LCD
   lcd.setBacklightPin(BACKLIGHT_PIN,POSITIVE);
   lcd.setBacklight(HIGH); //allume le rétro-éclairage
   lcd.home ();      
@@ -93,8 +89,10 @@ void setup() {
   lcd.print("HEATING: ");
   lcd.setCursor(16,3);
   lcd.print("OFF");
-
-  //Définition et initalisation des sorties
+//--------------DHT11--------------------
+  dht.begin(); 
+//--------------General setup-------------------
+//Définition et initalisation des sorties
   pinMode(ROLLUP1_POWER, OUTPUT);
   digitalWrite(ROLLUP1_POWER, HIGH);
   
@@ -126,148 +124,11 @@ void setup() {
   Serial.println("Resetting done");
 }
 
-//Affichage du % d'ouverture des rollup
-void setOpenedStatus(int pctIncrease){
-  opened += pctIncrease;
-  if(opened < 0) {
-    opened = 0;
-  }else if (opened > 100){
-    opened = 100;
-  }
-  Serial.print("    ");
-  Serial.println(opened);
-  lcd.setCursor(16, 1);
-  lcd.print(opened);    
-  lcd.print("% ");
-}
-
-//Exécution de la séquence d'ouverture/fermeture
-void animate(int movement){
-  for (int i=0; i < NB_OF_STEPS_IN_ANIMATION; i++){
-      delay(ROTATION_TIME / NB_OF_STEPS_IN_ANIMATION);
-      setOpenedStatus(movement * PCT_OPEN / NB_OF_STEPS_IN_ANIMATION);
-    };
-}
-
-//Programme d'ouverture des rollup
-void openSides(){
-  if(opened < 100){
-    lcd.setCursor(0, 1);
-    lcd.print("OUVERTURE... ");
-    digitalWrite(ROLLUP1_POWER,ON);
-    digitalWrite(ROLLUP1_DIRECTION, OPEN);
-    digitalWrite(ROLLUP2_POWER,ON);
-    digitalWrite(ROLLUP2_DIRECTION, OPEN);
-    animate(1);
-    digitalWrite(ROLLUP1_POWER,OFF);
-    digitalWrite(ROLLUP2_POWER,OFF);
-    Serial.println("  Done opening");
-    lcd.setCursor(0, 1);
-    lcd.print("ROLLUPS:     ");
-    delay(PAUSE_TIME);
-  }
-}
-
-//Programme de fermeture des rollups
-void closeSides(){
-  if (opened > 0){
-    Serial.println("  Closing");
-    lcd.setCursor(0, 1);
-    lcd.print("FERMETURE... ");
-    digitalWrite(ROLLUP1_POWER,ON);
-    digitalWrite(ROLLUP1_DIRECTION, CLOSE);
-    digitalWrite(ROLLUP2_POWER,ON);
-    digitalWrite(ROLLUP2_DIRECTION, CLOSE);
-    animate(-1);
-    digitalWrite(ROLLUP1_POWER, OFF);
-    digitalWrite(ROLLUP2_POWER, OFF);
-    Serial.println("  Done closing");
-    lcd.setCursor(0, 1);
-    lcd.print("ROLLUPS:     ");
-    delay(PAUSE_TIME);    
-  }
-}
-
-//État de la première fournaise
-void setHeater1(int heaterCommand1){
-  if ((heaterCommand1 == ON) && (heating1 == false)){
-    Serial.println("  Start heating1");
-    heating1 = true;
-  }else if ((heaterCommand1 == OFF) && (heating1 == true)){
-    Serial.println("  Stop heating1");
-    heating1 = false;    
-    }
-  }
-
-//État de la deuxième fournaise
-void setHeater2(int heaterCommand2){
-  if ((heaterCommand2 == ON) && (heating2 == false)){
-    Serial.println("  Start heating2");
-    heating2 = true;
-  }else if ((heaterCommand2 == OFF) && (heating2 == true)){
-    Serial.println("  Stop heating2");
-    heating2 = false;    
-    }
-  }
-
-//État de la ventilation
-void setFan(int fanCommand){
-  if ((fanCommand == ON) && (fan == false)){
-    Serial.println("  Start fan");
-
-    fan = true;
-  }else if ((fanCommand == OFF) && (fan == true)){
-    Serial.println("  Stop fan");
-    fan = false;
-  }
-}
-
-
 void loop() {    
-
+//--------------DHT11--------------------
   float greenhouseTemperature = dht.readTemperature();
   float greenhouseHumidity = dht.readHumidity();
-  Serial.print(greenhouseTemperature);//Affichage de la temperature
-  Serial.println ("C");
-  Serial.print(greenhouseHumidity);//Affichage de l'humidité
-  Serial.println ("%");  
-  lcd.setCursor(0, 0);
-  lcd.print("T: ");
-  lcd.print(greenhouseTemperature);
-  lcd.print("C  ");
-  lcd.setCursor(10,0);
-  lcd.print("HR: ");
-  lcd.print(greenhouseHumidity);
-  lcd.print("%"); 
-  if(fan == false){                   //Affichage de l'etat de la fan
-      Serial.println("FAN: OFF");
-      lcd.setCursor(0, 2);             
-      lcd.print("FAN:");
-      lcd.setCursor(16,2);
-      lcd.print("OFF");}
-  else if(fan == true){
-      Serial.println("FAN: ON");
-      lcd.setCursor(0,2);
-      lcd.print("FAN:");
-      lcd.setCursor(16,2);
-      lcd.print("ON ");}
-  if(heating1 == false){               //Affichage de l'etat du chauffage
-      Serial.println("HEATING1: OFF");
-      lcd.setCursor(0, 3);             
-      lcd.print("HEATING:");
-      lcd.setCursor(16,3);
-      lcd.print("OFF");}
-  else if(heating1 == true){
-      Serial.println("HEATING1: ON");
-      lcd.setCursor(0,3);
-      lcd.print("HEATING: ");
-      lcd.setCursor(16,3);
-      lcd.print("ON ");}
-  if(heating2 == false){
-      Serial.println("HEATING2 : OFF");}
-  else if(heating2 == true);{
-      Serial.println("HEATING2 : ON");}
-
+//--------------Relais--------------------
 //Programme d'ouverture/fermeture des rollups
   if(greenhouseTemperature < TEMP_ROLLUP-(HYST_ROLLUP/2)){
     closeSides();
@@ -298,6 +159,165 @@ void loop() {
     setFan(OFF);
     digitalWrite(FAN, OFF);
   }
+//--------------Affichage sériel--------------------
+    Serial.print("Temperature actuelle: ");
+    Serial.print(greenhouseTemperature);
+    Serial.println(" C");
+    Serial.print("Humidite: ");
+    Serial.print(greenhouseHumidity);
+    Serial.println("%");
+    Serial.println("-----------------------"); 
+    if(fan == false){
+    Serial.println("FAN: OFF");}
+    else if(fan == true){
+    Serial.println("FAN: ON");}
+    if(heating1 == false){
+    Serial.println("HEATING1: OFF");}
+    else if(heating1 == true){
+    Serial.println("HEATING1: ON");}
+    if(heating2 == false){
+    Serial.println("HEATING2 : OFF");}
+    else if(heating2 == true){
+    Serial.println("HEATING2 : ON");}
+//--------------Affichage LCD--------------------
+  lcd.setCursor(0, 0);
+  lcd.print("T: ");
+  lcd.print(greenhouseTemperature);
+  lcd.print("C  ");
+  lcd.setCursor(10,0);
+  lcd.print("HR: ");
+  lcd.print(greenhouseHumidity);
+  lcd.print("%"); 
+  if(fan == false){
+      lcd.setCursor(0, 2);             
+      lcd.print("FAN:");
+      lcd.setCursor(16,2);
+      lcd.print("OFF");}
+  else if(fan == true){
+      lcd.setCursor(0,2);
+      lcd.print("FAN:");
+      lcd.setCursor(16,2);
+      lcd.print("ON ");}
+  if(heating1 == false){
+      lcd.setCursor(0, 3);             
+      lcd.print("HEATING:");
+      lcd.setCursor(16,3);
+      lcd.print("OFF");}
+  else if(heating1 == true){
+      lcd.setCursor(0,3);
+      lcd.print("HEATING: ");
+      lcd.setCursor(16,3);
+      lcd.print("ON ");}
+//--------------fin du cycle--------------------
   delay(SLEEPTIME);
 }
+
+//--------------SOUS-PROGRAMMES--------------------
+//Affichage du % d'ouverture des rollup
+void setOpenedStatus(int pctIncrease){
+  opened += pctIncrease;
+  if(opened < 0) {
+    opened = 0;
+  }else if (opened > 100){
+    opened = 100;
+  }
+  Serial.print("    ");
+  Serial.println(opened);
+  lcd.setCursor(16, 1);
+  lcd.print(opened);    
+  lcd.print("% ");
+}
+
+//Exécution de la séquence d'ouverture/fermeture
+void animate(int movement){
+  for (int i=0; i < NB_OF_STEPS_IN_ANIMATION; i++){
+      delay(ROTATION_TIME / NB_OF_STEPS_IN_ANIMATION);
+      setOpenedStatus(movement * PCT_OPEN / NB_OF_STEPS_IN_ANIMATION);
+    };
+}
+
+//Programme d'ouverture des rollup
+void openSides(){
+  if(opened < 100){
+    Serial.println("");  
+    Serial.println("  Opening");
+    lcd.setCursor(0, 1);
+    lcd.print("OUVERTURE... ");
+    digitalWrite(ROLLUP1_POWER,ON);
+    digitalWrite(ROLLUP1_DIRECTION, OPEN);
+    digitalWrite(ROLLUP2_POWER,ON);
+    digitalWrite(ROLLUP2_DIRECTION, OPEN);
+    animate(1);
+    digitalWrite(ROLLUP1_POWER,OFF);
+    digitalWrite(ROLLUP2_POWER,OFF);
+    Serial.println("  Done opening");
+    lcd.setCursor(0, 1);
+    lcd.print("ROLLUPS:     ");
+    delay(PAUSE_TIME);
+  }
+}
+
+//Programme de fermeture des rollups
+void closeSides(){
+  if (opened > 0){
+    Serial.println("");  
+    Serial.println("  Closing");
+    lcd.setCursor(0, 1);
+    lcd.print("FERMETURE... ");
+    digitalWrite(ROLLUP1_POWER,ON);
+    digitalWrite(ROLLUP1_DIRECTION, CLOSE);
+    digitalWrite(ROLLUP2_POWER,ON);
+    digitalWrite(ROLLUP2_DIRECTION, CLOSE);
+    animate(-1);
+    digitalWrite(ROLLUP1_POWER, OFF);
+    digitalWrite(ROLLUP2_POWER, OFF);
+    Serial.println("  Done closing");
+    lcd.setCursor(0, 1);
+    lcd.print("ROLLUPS:     ");
+    delay(PAUSE_TIME);    
+  }
+}
+
+//État de la première fournaise
+void setHeater1(int heaterCommand1){
+  if ((heaterCommand1 == ON) && (heating1 == false)){
+    Serial.println("");  
+    Serial.println("  Start heating1");
+    heating1 = true;
+  }else if ((heaterCommand1 == OFF) && (heating1 == true)){
+    Serial.println("");  
+    Serial.println("  Stop heating1");
+    heating1 = false;    
+    }
+  }
+
+//État de la deuxième fournaise
+void setHeater2(int heaterCommand2){
+  if ((heaterCommand2 == ON) && (heating2 == false)){
+    Serial.println("");  
+    Serial.println("  Start heating2");
+    heating2 = true;
+  }else if ((heaterCommand2 == OFF) && (heating2 == true)){
+    Serial.println("");  
+    Serial.println("  Stop heating2");
+    heating2 = false;    
+    }
+  }
+
+//État de la ventilation
+void setFan(int fanCommand){
+  if ((fanCommand == ON) && (fan == false)){
+    Serial.println("");  
+    Serial.println("  Start fan");
+
+    fan = true;
+  }else if ((fanCommand == OFF) && (fan == true)){
+    Serial.println("");  
+    Serial.println("  Stop fan");
+    fan = false;
+  }
+}
+
+
+
 
