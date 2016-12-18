@@ -8,9 +8,15 @@
 LiquidCrystal_I2C  lcd(I2C_ADDR,2,1,0,4,5,6,7);
 /* En_pin  2, Rw_pin  1, Rs_pin  0, D4_pin  4, D5_pin  5, D6_pin  6, D7_pin  7 
  */
+//-------------------------Horloge-----------------
+#include <DS3231.h>
+DS3231  rtc(SDA, SCL);                // Init the DS3231 using the hardware interface
+Time  t;                        // Init a Time-data structure
 //--------------DHT11--------------------
 #include <DHT.h>
 #define DHTPIN A1
+#define DHTTYPE           DHT11         // Uncomment the type of sensor in use:
+DHT dht(DHTPIN, DHTTYPE);
 //--------------Relais--------------------
 //Sorties
 const int ROLLUP1_POWER = 12;//relais on/off - moteur1
@@ -33,25 +39,49 @@ boolean heating1 = false; //fournaise 1 éteinte par défaut
 boolean heating2 = false; //fournaise 2 éteinte par défaut
 boolean fan = false;//ventilation forcée éteinte par défaut
 float greenhouseTemperature = 20.0; //température par défaut : 20C (ajusté après un cycle)
-#define DHTTYPE    DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
-
+float TEMP_CIBLE = 20.0;              //température cible par défaut : 20C (ajusté après un cycle))
+float TEMP_ROLLUP = 20;
+float TEMP_VENT = 22.0;
+float TEMP_CHAUFFAGE1 = 18.0;
+float TEMP_CHAUFFAGE2 = 15.0;
+int PROGRAMME = 1;
 
 //**********BLOC PROGRAMMABLE*************
+//Programmes de températures
+const int HP1 = 7;                  //Heure d'exécution du premier programme
+const int MP1 = 30;                   //Minutes d'exécution du premier programme
+const float TEMP_CIBLEP1 = 20.0;            //Température cible du premier programme
+const float TEMP_ROLLUPP1 = (TEMP_CIBLEP1);
+const float TEMP_VENTP1 = (TEMP_CIBLEP1 + 2.0);
+const float TEMP_CHAUFFAGE1P1 = (TEMP_CIBLEP1 - 2.0);
+const float TEMP_CHAUFFAGE2P1 = (TEMP_CIBLEP1 - 5.0);
+
+const int HP2 = 11;                   //Heure d'exécution du deuxième programme
+const int MP2 = 0;                  //Minutes d'exécution du deuxième programme
+const float TEMP_CIBLEP2 = 24.0;            //Température cible du deuxième programme
+const float TEMP_ROLLUPP2 = (TEMP_CIBLEP2);
+const float TEMP_VENTP2 = (TEMP_CIBLEP2 + 2.0);
+const float TEMP_CHAUFFAGE1P2 = (TEMP_CIBLEP2 - 2.0);
+const float TEMP_CHAUFFAGE2P2 = (TEMP_CIBLEP2 - 5.0);
+
+const int HP3 = 16;                   //Heure d'exécution du troisième programme
+const int MP3 = 9;                  //Minutes d'exécution du troisième programme
+const float TEMP_CIBLEP3 = 18.0;           //Température cible du troisième programme
+const float TEMP_ROLLUPP3 = (TEMP_CIBLEP3);
+const float TEMP_VENTP3 = (TEMP_CIBLEP3 + 2.0);
+const float TEMP_CHAUFFAGE1P3 = (TEMP_CIBLEP3 - 2.0);
+const float TEMP_CHAUFFAGE2P3 = (TEMP_CIBLEP3 - 5.0);
+
+//Rollup:
 //Températures critiques et hysteresis
 //Rollup:
-const int TEMP_ROLLUP = 20; //température d'activation des rollup
 const int HYST_ROLLUP = 2;
 
 //Ventilation:
-const int TEMP_VENT = 22;
 const int HYST_VENT = 2;
 
 //Chauffage:
-const int TEMP_CHAUFFAGE1 = 18;//température d'activation de la 1re fournaise
 const int HYST_CHAUFFAGE1 = 2;//
-const int TEMP_CHAUFFAGE2 = 15;//température d'activation de la 2e fournaise
 const int HYST_CHAUFFAGE2 = 2;
 
 //incréments d'ouverture(nombre d'incréments d'ouverture = PCT_OPEN/NB_OF_STEPS_IN_ANIMATION = 25/5 = 5 incréments d'ouverture)
@@ -89,6 +119,8 @@ void setup() {
   lcd.print("HEATING: ");
   lcd.setCursor(16,3);
   lcd.print("OFF");
+//--------------Horloge--------------------
+  rtc.begin();                      //Démarre la communication avec l'horloge
 //--------------DHT11--------------------
   dht.begin(); 
 //--------------General setup-------------------
@@ -125,7 +157,35 @@ void setup() {
 }
 
 void loop() {    
-//--------------DHT11--------------------
+//-----------------Horloge-----------------
+  t = rtc.getTime();
+  int heure = t.hour;
+  int minutes = t.min;
+ if (((heure >= HP1)  && (heure < HP2))  && (minutes >= MP1)){
+    TEMP_CIBLE = TEMP_CIBLEP1;
+    TEMP_ROLLUP = TEMP_ROLLUPP1; 
+    TEMP_VENT = TEMP_VENTP1; 
+    TEMP_CHAUFFAGE1 = TEMP_CHAUFFAGE1P1;
+    TEMP_CHAUFFAGE2 = TEMP_CHAUFFAGE2P1;;
+    PROGRAMME = 1;
+  }
+  else if(((heure >= HP2)  && (heure < HP3))  && (minutes >= MP2)){
+    TEMP_CIBLE = TEMP_CIBLEP2;
+    TEMP_ROLLUP = TEMP_ROLLUPP2; 
+    TEMP_VENT = TEMP_VENTP2; 
+    TEMP_CHAUFFAGE1 = TEMP_CHAUFFAGE1P2;
+    TEMP_CHAUFFAGE2 = TEMP_CHAUFFAGE2P2;
+    PROGRAMME = 2;
+  }
+  else if((heure >= HP3)  && (minutes >= MP3)){
+    TEMP_CIBLE = TEMP_CIBLEP3;
+    TEMP_ROLLUP = TEMP_ROLLUPP3; 
+    TEMP_VENT = TEMP_VENTP3; 
+    TEMP_CHAUFFAGE1 = TEMP_CHAUFFAGE1P3;
+    TEMP_CHAUFFAGE2 = TEMP_CHAUFFAGE2P3;;
+    PROGRAMME = 3;
+  } 
+  //--------------DHT11--------------------
   float greenhouseTemperature = dht.readTemperature();
   float greenhouseHumidity = dht.readHumidity();
 //--------------Relais--------------------
@@ -160,6 +220,23 @@ void loop() {
     digitalWrite(FAN, OFF);
   }
 //--------------Affichage sériel--------------------
+    Serial.println("");
+    Serial.println("-----------------------");
+    Serial.print(rtc.getDOWStr());
+    Serial.print(",  ");
+    // Send date
+    Serial.print(rtc.getDateStr());
+    Serial.print(" - ");
+    // Send time
+    Serial.println(rtc.getTimeStr());
+    Serial.print("PROGRAMME : ");
+    Serial.println(PROGRAMME);
+  
+    Serial.println("-----------------------");    
+    Serial.print("Temperature cible :");
+    Serial.print(TEMP_CIBLE);
+    Serial.println(" C");
+
     Serial.print("Temperature actuelle: ");
     Serial.print(greenhouseTemperature);
     Serial.println(" C");
