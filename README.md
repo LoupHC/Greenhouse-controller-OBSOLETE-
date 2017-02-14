@@ -29,3 +29,8 @@ Material needed :
 
 Version of arduino IDE : 1.6.12
 
+Libraries:
+- DS3231
+- NewLiquidCrystal
+- OneWire
+- Dallas_Temperature
