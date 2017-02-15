@@ -86,13 +86,25 @@ void loop() {
     openTarget = 25;
     openSides();
   }
+  else if ((opened = 1)&&(greenhouseTemperature < (TEMP_ROLLUP1 - HYST_ROLLUP))) {
+    openTarget = 0;
+    closeSides();
+  }
   else if ((opened = 1)&&(greenhouseTemperature > TEMP_ROLLUP2)){
     openTarget = 50;
     openSides();
   }
+  else if ((opened = 2)&&(greenhouseTemperature < (TEMP_ROLLUP2 - HYST_ROLLUP))) {
+    openTarget = 25;
+    closeSides();
+  }
   else if ((opened = 2)&&(greenhouseTemperature > TEMP_ROLLUP3)){
     openTarget = 75;
     openSides();
+  }
+  else if ((opened = 3)&&(greenhouseTemperature < (TEMP_ROLLUP3 - HYST_ROLLUP))) {
+    openTarget = 50;
+    closeSides();
   }
   else if ((opened = 3)&&(greenhouseTemperature > TEMP_ROLLUP4)){
     openTarget = 100;
@@ -102,18 +114,7 @@ void loop() {
     openTarget = 75;
     closeSides();
   }
-  else if ((opened = 3)&&(greenhouseTemperature < (TEMP_ROLLUP3 - HYST_ROLLUP))) {
-    openTarget = 50;
-    closeSides();
-  }
-  else if ((opened = 2)&&(greenhouseTemperature < (TEMP_ROLLUP2 - HYST_ROLLUP))) {
-    openTarget = 25;
-    closeSides();
-  }
-  else if ((opened = 1)&&(greenhouseTemperature < (TEMP_ROLLUP1 - HYST_ROLLUP))) {
-    openTarget = 0;
-    closeSides();
-  }
+
 
   //Programme fournaise1
   if (greenhouseTemperature < TEMP_FOURNAISE1) {
