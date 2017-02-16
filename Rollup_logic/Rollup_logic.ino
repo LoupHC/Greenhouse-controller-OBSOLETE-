@@ -4,9 +4,10 @@
 #define Open 1
 #define Close 0
 
+#define LIMITSWITCH 2
 #define ONE_WIRE_BUS 3
-#define ROLLUP1_OPEN  12//relais on/off - moteur1
-#define ROLLUP1_CLOSE  11 //relais gauche/droite - moteur1
+#define ROLLUP1_OPEN  10//relais on/off - moteur1
+#define ROLLUP1_CLOSE  9 //relais gauche/droite - moteur1
 #define FAN  8 //relais ventilation forcée
 #define CHAUFFAGE1 7 //relais fournaise1
 #define CHAUFFAGE2 6 // relais fournaise2
@@ -36,12 +37,12 @@ int TEMP_VENTILATION = TEMP_CIBLE+5;
 int TEMP_FOURNAISE1 = TEMP_CIBLE-2;
 int TEMP_FOURNAISE2 = TEMP_CIBLE-4;
 
-byte HYST_ROLLUP = 2;           //hysteresis rollup
-byte HYST_VENT = 2;             //hysteresis ventilation
+byte HYST_ROLLUP = 1;           //hysteresis rollup
+byte HYST_VENT = 1;             //hysteresis ventilation
 byte HYST_FOURNAISE1 = 2;       //hysteresis fournaise 1
 byte HYST_FOURNAISE2 = 2;       //hysteresis fournaise 2
 
-long OPENING_TIME= 3000;       //temps de rotation des moteurs pour ouvrir d'un quart de tour(en mili-secondes)
+long OPENING_TIME = 3000;       //temps de rotation des moteurs pour ouvrir d'un quart de tour(en mili-secondes)
 long CLOSING_TIME = 2000;       //temps de rotation des moteurs pour fermer d'un quart de tour(en mili-secondes)
 long PAUSE_TIME = 1000;         //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
 //incréments d'ouverture(nombre d'incréments d'ouverture = PCT_OPEN/NB_OF_STEPS_IN_ANIMATION = 25/5 = 5 incréments d'ouverture)
@@ -50,14 +51,13 @@ const int NB_OF_STEPS_IN_ANIMATION = 5; //doit être un divisible de PCT_OPEN
 //Autres variables
 const int SLEEPTIME = 900; //temps de pause entre chaque exécution du programme(en mili-secondes)
 
-
-volatile byte rollupState = LOW;
+volatile byte rollupState = HIGH;
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   sensors.begin();
-
+  pinMode(LIMITSWITCH, INPUT_PULLUP);
   pinMode(ROLLUP1_OPEN, OUTPUT);
   digitalWrite(ROLLUP1_OPEN, LOW);
   pinMode(ROLLUP1_CLOSE, OUTPUT);
@@ -71,7 +71,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(2), confirmOpening, CHANGE);
 
   //Remise à niveau des rollup
-  Reset();  
+  //Reset();  
 }
 
 void loop() {
@@ -137,6 +137,7 @@ void loop() {
   } else if ((greenhouseTemperature < (TEMP_VENTILATION - HYST_VENT))||(rollupState == LOW)) {
     setFan(OFF);
   }
+  delay(1000);
 }
 
 
@@ -175,6 +176,7 @@ void animate(int movement, int action) {
 //Programme d'ouverture des rollup
 void openSides() {
   if (opened < 100) {
+    Serial.println(opened);
     Serial.println(F(""));
     Serial.println(F("  Opening"));
     digitalWrite(ROLLUP1_OPEN, ON);
@@ -190,6 +192,7 @@ void openSides() {
 //Programme de fermeture des rollups
 void closeSides() {
   if (opened > 0) {
+    Serial.println(opened);
     Serial.println(F(""));
     Serial.println(F("  Closing"));
     digitalWrite(ROLLUP1_CLOSE, ON);
@@ -250,5 +253,3 @@ void setFan(int fanCommand) {
 void confirmOpening() {
   rollupState =! rollupState;
 }
-
-
