@@ -4,7 +4,7 @@
 #define Open 1
 #define Close 0
 
-#define ONE_WIRE_BUS 2
+#define ONE_WIRE_BUS 3
 #define ROLLUP1_OPEN  12//relais on/off - moteur1
 #define ROLLUP1_CLOSE  11 //relais gauche/droite - moteur1
 #define FAN  8 //relais ventilation forcée
@@ -41,9 +41,9 @@ byte HYST_VENT = 2;             //hysteresis ventilation
 byte HYST_FOURNAISE1 = 2;       //hysteresis fournaise 1
 byte HYST_FOURNAISE2 = 2;       //hysteresis fournaise 2
 
-long OPENING_TIME;       //temps de rotation des moteurs pour ouvrir d'un quart de tour(en mili-secondes)
-long CLOSING_TIME;       //temps de rotation des moteurs pour fermer d'un quart de tour(en mili-secondes)
-long PAUSE_TIME;         //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
+long OPENING_TIME= 3000;       //temps de rotation des moteurs pour ouvrir d'un quart de tour(en mili-secondes)
+long CLOSING_TIME = 2000;       //temps de rotation des moteurs pour fermer d'un quart de tour(en mili-secondes)
+long PAUSE_TIME = 1000;         //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
 //incréments d'ouverture(nombre d'incréments d'ouverture = PCT_OPEN/NB_OF_STEPS_IN_ANIMATION = 25/5 = 5 incréments d'ouverture)
 const int PCT_OPEN = 25;
 const int NB_OF_STEPS_IN_ANIMATION = 5; //doit être un divisible de PCT_OPEN
@@ -79,38 +79,39 @@ void loop() {
   //--------------DS18B20--------------------
   sensors.requestTemperatures();
   greenhouseTemperature = sensors.getTempCByIndex(0);
+  Serial.println(greenhouseTemperature);
   //--------------Relais--------------------
   
   //Programme d'ouverture/fermeture des rollups à 4 paliers
-  if ((opened = 0)&&(greenhouseTemperature > TEMP_ROLLUP1)){
+  if ((opened == 0)&&(greenhouseTemperature > TEMP_ROLLUP1)){
     openTarget = 25;
     openSides();
   }
-  else if ((opened = 1)&&(greenhouseTemperature < (TEMP_ROLLUP1 - HYST_ROLLUP))) {
+  else if ((opened == 25)&&(greenhouseTemperature < (TEMP_ROLLUP1 - HYST_ROLLUP))) {
     openTarget = 0;
     closeSides();
   }
-  else if ((opened = 1)&&(greenhouseTemperature > TEMP_ROLLUP2)){
+  else if ((opened == 25)&&(greenhouseTemperature > TEMP_ROLLUP2)){
     openTarget = 50;
     openSides();
   }
-  else if ((opened = 2)&&(greenhouseTemperature < (TEMP_ROLLUP2 - HYST_ROLLUP))) {
+  else if ((opened == 50)&&(greenhouseTemperature < (TEMP_ROLLUP2 - HYST_ROLLUP))) {
     openTarget = 25;
     closeSides();
   }
-  else if ((opened = 2)&&(greenhouseTemperature > TEMP_ROLLUP3)){
+  else if ((opened == 50)&&(greenhouseTemperature > TEMP_ROLLUP3)){
     openTarget = 75;
     openSides();
   }
-  else if ((opened = 3)&&(greenhouseTemperature < (TEMP_ROLLUP3 - HYST_ROLLUP))) {
+  else if ((opened == 75)&&(greenhouseTemperature < (TEMP_ROLLUP3 - HYST_ROLLUP))) {
     openTarget = 50;
     closeSides();
   }
-  else if ((opened = 3)&&(greenhouseTemperature > TEMP_ROLLUP4)){
+  else if ((opened == 75)&&(greenhouseTemperature > TEMP_ROLLUP4)){
     openTarget = 100;
     openSides();
   }
-  else if ((opened = 4)&&(greenhouseTemperature < (TEMP_ROLLUP4 - HYST_ROLLUP))) {
+  else if ((opened == 100)&&(greenhouseTemperature < (TEMP_ROLLUP4 - HYST_ROLLUP))) {
     openTarget = 75;
     closeSides();
   }
@@ -191,7 +192,7 @@ void closeSides() {
   if (opened > 0) {
     Serial.println(F(""));
     Serial.println(F("  Closing"));
-    //digitalWrite(ROLLUP2_CLOSE, ON);
+    digitalWrite(ROLLUP1_CLOSE, ON);
     animate(-1, Close);
     digitalWrite(ROLLUP1_CLOSE, OFF);
     //digitalWrite(ROLLUP2_CLOSE, OFF);
