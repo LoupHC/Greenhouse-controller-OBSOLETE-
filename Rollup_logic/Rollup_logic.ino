@@ -252,4 +252,6 @@ void setFan(int fanCommand) {
 
 void confirmOpening() {
   rollupState =! rollupState;
+  opened = 100;
+  digitalWrite(ROLLUP1_OPEN, LOW);
 }
