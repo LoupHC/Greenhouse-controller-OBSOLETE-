@@ -32,13 +32,13 @@ DallasTemperature sensors(&oneWire);
 
 //*************VARIABLES EEPROM***********************
 //Programmes de températures
-byte srmod = 60;                  //Heure d'exécution du deuxième programme
-byte TEMP_CIBLEP1 = 20;         //Température cible du program 1
+byte srmod = 50;                  //Heure d'exécution du deuxième programme
+byte TEMP_CIBLEP1 = 22;         //Température cible du program 1
 byte HP2 = 11;                  //Heure d'exécution du deuxième programme
 byte MP2 = 0;                   //Minutes d'exécution du deuxième programme
 byte TEMP_CIBLEP2 = 24;         //Température cible du program2
-byte ssmod = 60;                  //Heure d'exécution du deuxième programme
-byte TEMP_CIBLEP3 = 22;         //Température cible du programme 3
+byte ssmod = 70;                  //Heure d'exécution du deuxième programme
+byte TEMP_CIBLEP3 = 18;         //Température cible du programme 3
 byte ramping = 5;
 //Sorties:
 byte HYST_ROLLUP = 2;           //hysteresis rollup
@@ -101,14 +101,14 @@ int HP3;
 int MP3;
 int SRmod;
 int SSmod;
-int TEMP_CIBLE = 20;
+float TEMP_CIBLE;
 //température cible par défaut : 20C (ajustée après un cycle))
-int NEW_TEMP_CIBLE;
+float NEW_TEMP_CIBLE;
 //temp cible pour équipement chauffage/refroidissement
-int TEMP_ROLLUP;
-int TEMP_VENTILATION;
-int TEMP_FOURNAISE1;
-int TEMP_FOURNAISE2;
+float TEMP_ROLLUP;
+float TEMP_VENTILATION;
+float TEMP_FOURNAISE1;
+float TEMP_FOURNAISE2;
 byte PROGRAMME = 1;                           //Programme horaire par défaut
 long ROTATION_TIME;       //temps de rotation des moteurs(en mili-secondes)
 long PAUSE_TIME;             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
@@ -117,6 +117,7 @@ long PAUSE_TIME;             //temps d'arrêt entre chaque ouverture/fermeture(e
 const int SLEEPTIME = 900; //temps de pause entre chaque exécution du programme(en mili-secondes)
 //variables de temps
 int yr; byte mt; byte dy; byte hr; byte mn; byte sc;
+byte heures; byte minutes;
 int last_day = 0;
 //Timelord
 const int TIMEZONE = -5; //PST
@@ -163,13 +164,33 @@ void setup() {
   f2mod = (f2modE - 11);                    //modificateur fournaise2
   SRmod = srmod-60;
   SSmod = ssmod-60;
+
+  t = rtc.getTime();
+  heures = t.hour;
+  minutes = t.min;
+  
+  if (((heures == HSR)  && (minutes >= MSR))||((heures > HSR) && (heures < HP2))||((heures == HP2)  && (minutes < MP2))){
+    TEMP_CIBLE = TEMP_CIBLEP1;
+    PROGRAMME = 1;
+  }
+  else if (((heures == HP2)  && (minutes >= MP2))||((heures > HP2) && (heures < HP3))||((heures == HP3)  && (minutes < MP2))){
+    TEMP_CIBLE = TEMP_CIBLEP2;
+    PROGRAMME = 2;
+  }
+  else if (((heures == HSS)  && (minutes >= HSS))||(heures > HSS)||(heures < HSR)||((heures == HSR)  && (minutes < MSR))){
+    TEMP_CIBLE = TEMP_CIBLEP3;
+    PROGRAMME = 3;
+  }
+  
   TEMP_ROLLUP = TEMP_CIBLE + rmod;
   TEMP_VENTILATION = TEMP_CIBLE + vmod;
   TEMP_FOURNAISE1 = TEMP_CIBLE + f1mod;
   TEMP_FOURNAISE2 = TEMP_CIBLE + f2mod;
   ROTATION_TIME = (rotation * 1000);       //temps de rotation des moteurs(en mili-secondes)
   PAUSE_TIME = (pause * 1000);             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
-  rampingInterval = ramping*60*1000;
+  rampingInterval = (unsigned long)ramping*60*1000;
+  Serial.println(ramping);
+  Serial.println(rampingInterval);
 
 
   pinMode(A1, INPUT_PULLUP); // sets analog pin for input 
@@ -190,10 +211,9 @@ void setup() {
   myLord.TimeZone(TIMEZONE * 60);
   myLord.Position(LATITUDE, LONGITUDE);
   myLord.DstRules(3,2,11,1,60); // DST Rules for USA
- 
 
-  //Remise à niveau des rollup
-  //Reset();
+  getDateAndTime();
+
 }
 
 //**************************************************************
@@ -231,16 +251,6 @@ void loop() {
 //**************************************************************
 //****************       MACROS      ***************************
 //**************************************************************
-
-void Reset(){
-  lcd.home();
-  lcd.print("Resetting...");
-    Serial.println(F("Resetting position"));
-  for (int i = 0; i < 5; i++) {
-    closeSides();
-  }
-  Serial.println(F("Resetting done"));
-}
 
 //*********************EEPROM***********************************
 
@@ -287,92 +297,25 @@ void loadPreviousSettings() {
 }
 
 //**********************CONTROLE********************************
-void checkSunriseSunset(){
-  t = rtc.getTime();
-  dy = (t.date);
-  mt = (t.mon);
-  yr = (t.year-2000);
-  delay(100);
 
-  if (dy != last_day){
-
-      sunTime[3] = dy; // Uses the Time library to give Timelord the current date
-      sunTime[4] = mt;
-      sunTime[5] = yr;
-      myLord.SunRise(sunTime); // Computes Sun Rise. Prints:
-      mSunrise = sunTime[2] * 60 + sunTime[1];
-          setSunRise(sunTime);
-          
-      /* Sunset: */
-      sunTime[3] = dy; // Uses the Time library to give Timelord the current date
-      sunTime[4] = mt;
-      sunTime[5] = yr;
-      myLord.SunSet(sunTime); // Computes Sun Set. Prints:
-      mSunset = sunTime[2] * 60 + sunTime[1];
-          setSunSet(sunTime);
-  }
-}
-  
-void setSunRise(uint8_t * when){
-      HSR = when[2];
-      MSR = when[1];
-      }
-void setSunSet(uint8_t * when){
-      HSS = when[2];
-      MSS = when[1];}
-
-void startRamping(){
-  unsigned long rampingCounter = millis();
-  if(rampingCounter - lastCount > rampingInterval) {
-    // save the last time you blinked the LED 
-    lastCount = rampingCounter;
-    TEMP_CIBLE += 0,5;   
-  } 
-}
-
-void convertDecimalToTime(){
-
-  if ((MP1 > 59) && (MP1 < 120)){
-    HP1 += 1;
-    MP1 = MP1 - 60;
-  }
-  else if ((MP1 < 0) && (MP1 >= -60)){
-    HP1 -= 1;
-    MP1 = 60 + MP1;
-  }
-  if ((MP3 > 59) && (MP3 < 120)){
-    HP3 += 1;
-    MP3 = MP3 - 60;
-  }
-  else if ((MP3 < 0)&& (MP3 >= -60)){
-    HP3 -= 1;
-    MP3 = 60 + MP3;
-  }
-}
 
 
 void Controle() {
   //-----------------Horloge----------------  
+  getDateAndTime();
   checkSunriseSunset();
+  
   SRmod = (int)srmod-60;
   SSmod = (int)ssmod-60;
   HP1 = HSR;
   MP1 = MSR + SRmod;
+  convertDecimalToTime(&HP1, &MP1);
   HP3 = HSS;
   MP3 = MSS + SSmod;
-  convertDecimalToTime();
-  Serial.print("heure programme 1 : ");
-  Serial.print(HP1);
-  Serial.print(":");
-  Serial.println(MP1);
-  Serial.print("heure programme 3 : ");
-  Serial.print(HP3);
-  Serial.print(":");
-  Serial.println(MP3);  
+  convertDecimalToTime(&HP3, &MP3);
   
-  t = rtc.getTime();
-  int heures = t.hour;
-  int minutes = t.min;
+  heures = sunTime[2];
+  minutes = sunTime[1];
 
   if (((heures == HSR)  && (minutes >= MSR))||((heures > HSR) && (heures < HP2))||((heures == HP2)  && (minutes < MP2))){
     NEW_TEMP_CIBLE = TEMP_CIBLEP1;
@@ -386,11 +329,14 @@ void Controle() {
     NEW_TEMP_CIBLE = TEMP_CIBLEP3;
     PROGRAMME = 3;
   }
+  startRamping();
   //--------------DS18B20--------------------
   sensors.requestTemperatures();
   greenhouseTemperature = sensors.getTempCByIndex(0);
   //--------------Affichage------------------
     lcdDisplay();
+  //Debugging
+  serialDisplay();
   //--------------Relais--------------------
   //Programme d'ouverture/fermeture des rollups
   if (greenhouseTemperature < (TEMP_ROLLUP - HYST_ROLLUP)) {
@@ -422,8 +368,73 @@ void Controle() {
     setFan(OFF);
     digitalWrite(FAN, OFF);
   }
-  //Debugging
-  serialDisplay();
+}
+
+void getDateAndTime(){
+  t = rtc.getTime();
+  sunTime[5] = t.year-2000;
+  sunTime[4] = t.mon;
+  sunTime[3] = t.date;
+  sunTime[2] = t.hour;
+  sunTime[1] = t.min;
+  sunTime[0] = t.sec;
+  myLord.DST(sunTime);
+}
+
+void checkSunriseSunset(){
+  if (sunTime[3] != last_day){
+
+      myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
+      myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
+      HSR = sunTime[2];
+      MSR = sunTime[1];
+          
+      /* Sunset: */
+      myLord.SunSet(sunTime); // Computes Sun Set. Prints:
+      myLord.DST(sunTime);
+      HSS = sunTime[2];
+      MSS = sunTime[1];
+
+     last_day = sunTime[3];
+     
+     getDateAndTime();
+
+  }
+}
+
+//Programme pour convertir l'addition de nombres décimales en format horaire
+void convertDecimalToTime(int * const heure, int * const minut){
+  if ((*minut > 59) && (*minut < 120)){
+    *heure += 1;
+    *minut = *minut - 60;
+  }
+  
+  else if ((*minut < 0)&& (minut >= -60)){
+    *heure -= 1;
+    *minut = 60 - *minut;
+  }
+}
+  
+//Programme de courbe de température
+void startRamping(){
+  if (NEW_TEMP_CIBLE > TEMP_CIBLE){
+    unsigned long rampingCounter = millis();
+    if(rampingCounter - lastCount > rampingInterval) {
+      // save the last time you blinked the LED 
+      lastCount = rampingCounter;
+      TEMP_CIBLE += 0.5;   
+      Serial.println("Ramping succeeded");
+    }
+  } 
+  else if (NEW_TEMP_CIBLE < TEMP_CIBLE){
+    unsigned long rampingCounter = millis();
+    if(rampingCounter - lastCount > rampingInterval) {
+      // save the last time you blinked the LED 
+      lastCount = rampingCounter;
+      TEMP_CIBLE -= 0.5;   
+      Serial.println("Ramping succeeded");
+    } 
+  }
 }
 
 //Programme d'ouverture des rollup
@@ -506,6 +517,7 @@ void setFan(int fanCommand) {
     fan = false;
   }
 }
+
 void lcdDisplay() {
   lcd.setCursor(0, 0);
   displayTempTimeStatus();
@@ -515,7 +527,6 @@ void lcdDisplay() {
   if ((fan != last_fan) || (heating1 != last_heating1)) {
     displayFanHeaterStatus();
   }
-  last_incrementCounter = incrementCounter;
   last_incrementCounter = incrementCounter;
   last_fan = fan;
   last_heating1 = heating1;
@@ -589,9 +600,9 @@ void displayTempTimeStatus() {
   lcd.print(PROGRAMME);
   lcd.print(F(":"));
   lcd.setCursor(14,3);
-  lcd.print(t.hour);
+  lcdPrintDigits(sunTime[2]);
   lcd.print(F(":"));
-  lcd.print(t.min);
+  lcdPrintDigits(sunTime[1]);
   lcd.setCursor(19,3);
   lcd.print(F(")"));
 }
@@ -599,11 +610,11 @@ void serialDisplay(){
 //--------------Affichage sériel--------------------
   Serial.println(F(""));
   Serial.println(F("-----------------------"));
-  Serial.print(rtc.getDOWStr());
-  Serial.print(F(",  "));
   // Send date
+  Serial.print(rtc.getDOWStr());
+  delay(100);
+  Serial.print(F(",  "));
   Serial.println(rtc.getDateStr());
-  Serial.print(F(" - "));
   Serial.print(F("Lever du soleil : "));
   Serial.print(HSR);
   Serial.print(F(":"));
@@ -613,13 +624,20 @@ void serialDisplay(){
   Serial.print(F(":"));
   Serial.println(MSS);
   // Send time
-  Serial.println(rtc.getTimeStr());
+  serialPrintDigits(sunTime[2]);
+  Serial.print(sunTime[2]);
+  Serial.print(F(":"));
+  serialPrintDigits(sunTime[1]);
+  Serial.println(sunTime[1]);
   Serial.print(F("PROGRAMME : "));
   Serial.println(PROGRAMME);
 
   Serial.println(F("-----------------------"));
   Serial.print(F("Temperature cible :"));
   Serial.print(TEMP_CIBLE);
+  Serial.println(F(" C"));
+  Serial.print(F("Nouvelle temperature cible :"));
+  Serial.print(NEW_TEMP_CIBLE);
   Serial.println(F(" C"));
 
   Serial.print(F("Temperature actuelle: "));
@@ -645,6 +663,20 @@ void serialDisplay(){
     Serial.println(F("HEATING2 : ON"));
   }
 }
+
+void lcdPrintDigits(int digits){
+  // utility function for digital clock display: prints preceding colon and leading 0
+  if(digits < 10)
+  lcd.print("0");
+  lcd.print(digits);
+}
+
+void serialPrintDigits(int digits){
+  // utility function for digital clock display: prints preceding colon and leading 0
+  if(digits < 10)
+  Serial.print("0");
+}
+
 
 
 //******************MENU****************************************
@@ -796,6 +828,7 @@ void displayMenu(int x) {
 
 void switchmenu(int x) {
   delay(1000);
+  Serial.print(F(",  "));
   menu = x;
   currentMenuItem = 1;
   Nbitems = 3;
@@ -833,7 +866,14 @@ void selectMenu(int x, int y) {
         case 2:
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("Time : ")); lcd.print(rtc.getTimeStr());
+                  
+          t = rtc.getTime();
+          sunTime[2] = t.hour;
+          sunTime[1] = t.min;
+          sunTime[0] = t.sec;
+          myLord.DST(sunTime);
+          
+          lcd.setCursor(0, 1); lcd.print(F("Time : ")); lcdPrintDigits(sunTime[2]);lcd.print(":"); lcdPrintDigits(sunTime[1]);lcd.print(":");lcdPrintDigits(sunTime[1]);
           break;
         case 3: switchmenu(11); break;
         case 4: switchmenu(12); break;
@@ -892,11 +932,19 @@ void selectMenu(int x, int y) {
     //-------------------------------SelectMenu14-----------------------------------------
     //SET HOUR
     case 13 :
-      if (y < Nbitems) {
+      t = rtc.getTime();
+      sunTime[2] = t.hour;
+      myLord.DST(sunTime);
+      
+      if ((t.hour != sunTime[2]) && (y < Nbitems)) {
+        hr = y-1;
+        switchmenu(131);
+      }
+      else if ((t.hour == sunTime[2]) && (y < Nbitems)) {
         hr = y;
         switchmenu(131);
       }
-      else {
+      else{
         switchmenu(1);
       }
       break;
@@ -1130,7 +1178,7 @@ void selectMenu(int x, int y) {
       }
       break;
     //-------------------------------SelectMenu511-----------------------------------------
-    //SET HOUR
+    //SET MINUTES PAST/BEFORE SUNRISE
     case 511 :
       if (y < Nbitems) {
         SRmod = y-60;
@@ -1146,7 +1194,7 @@ void selectMenu(int x, int y) {
     //SET TEMP_CIBLE
     case 512 :
       if (y < Nbitems) {
-        TEMP_CIBLEP1 = y;
+        TEMP_CIBLEP1 = y-1;
         switchmenu(51);
         EEPROM.write(6, TEMP_CIBLEP1);
       }
@@ -1190,7 +1238,7 @@ void selectMenu(int x, int y) {
     //SET TEMP_CIBLE
     case 522 :
       if (y < Nbitems) {
-        TEMP_CIBLEP2 = y;
+        TEMP_CIBLEP2 = y-1;
         switchmenu(52);
         EEPROM.write(9, TEMP_CIBLEP2);
       }
@@ -1208,7 +1256,7 @@ void selectMenu(int x, int y) {
       }
       break;
     //-------------------------------SelectMenu531-----------------------------------------
-    //SET HOUR
+    //SET MINUTES PAST/BEFORE SUNSET
     case 531 :
       if (y < Nbitems) {
         SSmod = y - 60;
@@ -1224,7 +1272,7 @@ void selectMenu(int x, int y) {
     //SET TEMP_CIBLE
     case 532 :
       if (y < Nbitems) {
-        TEMP_CIBLEP3 = y;
+        TEMP_CIBLEP3 = y-1;
         switchmenu(53);
         EEPROM.write(12, TEMP_CIBLEP3);
       }
@@ -1303,7 +1351,7 @@ void selectMenu(int x, int y) {
     case 55:
     if (y < Nbitems) {
         ramping = y-1;
-        rampingInterval = (y-1)*60*1000;
+        rampingInterval = ((unsigned long)y-1)*60*1000;
         EEPROM.write(19, ramping);
         switchmenu(5);
       }
