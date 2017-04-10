@@ -1,4 +1,7 @@
+#include <Arduino.h>
+
 //*****************LIBRAIRIES************************
+#include <MemoryFree.h>
 #include <EEPROM.h>
 #include <Wire.h>
 #include <LCD.h>
@@ -9,13 +12,18 @@
 #include <TimeLord.h>
 
 //*****************DEFINITIONS***********************
-#define ONE_WIRE_BUS A0
-#define ROLLUP_OPEN  10//relais on/off - moteur2
-#define ROLLUP_CLOSE  9 //relais gauche/droite - moteur2
+#define LCDKEYPAD A0
+#define ONE_WIRE_BUS A1
+#define ROLLUP_OPEN  4//relais on/off - moteur2
+#define ROLLUP_CLOSE  5 //relais gauche/droite - moteur2
 #define FAN  8 //relais ventilation forcée
 #define CHAUFFAGE1 7 //relais fournaise1
 #define CHAUFFAGE2 6 // relais fournaise2
-#define menuPin 2
+#define menuPin 3
+#define INTERRUPT_SWITCH 2
+
+#define HEURE 2
+#define MINUTE 1
 
 //*********************OBJETS************************
 //---------------------LCD-----------------
@@ -29,6 +37,12 @@ Time  t;
 OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
+//-------------------Timelord-------------
+const int TIMEZONE = -5; //PST
+const float LATITUDE = 45.50, LONGITUDE = -73.56; // set your position here
+
+TimeLord myLord; // TimeLord Object, Global variable
+
 
 //*************VARIABLES EEPROM***********************
 //Programmes de températures
@@ -54,10 +68,62 @@ byte f2modE = 7;                //Modificateur fournaise2
 byte rotation = 2;
 byte pause = 1;
 //*********************VARIABLES GLOBALES*************
+
+//-----------------Control---------------------
+
+boolean rollups = false;
+boolean heater[2] = {true, true};
+boolean cooler[1] = {true};
+
+//initialisation
+boolean firstOpening = true;
+//état des sorties
+boolean heating[2] = {false, false};                     //fournaise 1 éteinte par défaut
+boolean fan[1] = {false};                          //VENTilation forcée éteinte par défaut
+//Température
+float greenhouseTemperature = 20.0;               //température par défaut : 20C (ajusté après un cycle)
+float TEMP_CIBLE;
+int rmod;                      //modificateur relais
+int vmod;                      //modificateur VENTilation
+int f1mod;                    //modificateur fournaise1
+int f2mod;                    //modificateur fournaise2
+float TEMP_ROLLUP;
+float TEMP_VENTILATION;
+float TEMP_FOURNAISE1;
+float TEMP_FOURNAISE2;
+//Temps de rotation et de pause des moteurs
+long ROTATION_TIME;       //temps de rotation des moteurs(en mili-secondes)
+long PAUSE_TIME;             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
+int increments = 5;
+int incrementCounter;
+//Programme horaire
+byte PROGRAMME;
+//variables de temps
+byte sunTime[6];
+byte sunRise[6];
+byte sunSet [6];
+int SRmod;
+int SSmod;
+byte P1[2];
+byte P2[2];
+byte P3[2];
+
+//Ramping
+float NEW_TEMP_CIBLE;
+unsigned long lastCount = 0;
+unsigned long rampingInterval;
+
+//vocabulaire
+const int CLOSE = LOW;
+const int OPEN = HIGH;
+const int ON = HIGH;
+const int OFF = LOW;
+//Autres variables
+const int SLEEPTIME = 1000; //temps de pause entre chaque exécution du programme(en mili-secondes)
+
 //--------------------LCD Menu----------------
 //menuPin
 boolean menuPinState = 1;
-boolean lastMenuPinState = 1;
 //curseur
 byte currentMenuItem = 1;
 //buttonstate
@@ -68,152 +134,47 @@ int menu = 0;
 //#items/menu
 byte Nbitems = 6;
 char* menuitems[10];
-//-----------------Control---------------------
-//vocabulaire
-const int CLOSE = LOW;
-const int OPEN = HIGH;
-const int ON = HIGH;
-const int OFF = LOW;
-//consignes initiales
-int increments = 5;
-int incrementCounter = 0;
-int last_incrementCounter = 1;
-boolean heating1 = false;                     //fournaise 1 éteinte par défaut
-boolean last_heating1 = true;
-boolean heating2 = false;                     //fournaise 2 éteinte par défaut
-boolean last_heating2 = true;
-boolean fan = false;                          //VENTilation forcée éteinte par défaut
-boolean last_fan = true;
-float greenhouseTemperature = 20.0;               //température par défaut : 20C (ajusté après un cycle)
-float last_greenhouseTemperature;
-int rmod;                      //modificateur relais
-int vmod;                      //modificateur VENTilation
-int f1mod;                    //modificateur fournaise1
-int f2mod;                    //modificateur fournaise2
-
-int HSR; //hour of sunrise
-int MSR; //minute of sunrise
-int HP1;
-int MP1;
-int HSS; //hour of sunset
-int MSS; //minute of sunset
-int HP3;
-int MP3;
-int SRmod;
-int SSmod;
-float TEMP_CIBLE;
-//température cible par défaut : 20C (ajustée après un cycle))
-float NEW_TEMP_CIBLE;
-//temp cible pour équipement chauffage/refroidissement
-float TEMP_ROLLUP;
-float TEMP_VENTILATION;
-float TEMP_FOURNAISE1;
-float TEMP_FOURNAISE2;
-byte PROGRAMME = 1;                           //Programme horaire par défaut
-long ROTATION_TIME;       //temps de rotation des moteurs(en mili-secondes)
-long PAUSE_TIME;             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
-
-//Autres variables
-const int SLEEPTIME = 900; //temps de pause entre chaque exécution du programme(en mili-secondes)
-//variables de temps
 int yr; byte mt; byte dy; byte hr; byte mn; byte sc;
-byte heures; byte minutes;
-int last_day = 0;
-//Timelord
-const int TIMEZONE = -5; //PST
-const float LATITUDE = 45.50, LONGITUDE = -73.56; // set your position here
 
-TimeLord myLord; // TimeLord Object, Global variable
-byte sunTime[]  = {0, 0, 0, 30, 12, 16};
-byte sunRise[6];
-byte sunSet [6];
-int mSunrise, mSunset; //sunrise and sunset expressed as minute of day (0-1439)
-
-
-//Ramping
-unsigned long lastCount = 0;
-unsigned long rampingInterval;
 
 //**************************************************************
 //*****************       SETUP      ***************************
 //**************************************************************
 
 void setup() {
+  //Initialisation (moniteur série, horloge, capteurs, affichage, données astronomiques)
+
   Serial.begin(9600);
   rtc.begin();
   sensors.begin();
-  lcd.begin(20, 4);
-  lcd.setBacklightPin(BACKLIGHT_PIN, POSITIVE);
-  lcd.setBacklight(HIGH);
-  lcd.clear();
-  
-  /*Pour reconfigurer les paramètres par défaut: 
-   *1- Modifier les variables EEPROM 
-   *2- Enlever les "//" avant newDefaultSettings, 
+  initLCD();
+  initTimeLord();
+  /*Pour reconfigurer les paramètres par défaut:
+   *1- Modifier les variables EEPROM
+   *2- Enlever les "//" avant newDefaultSettings,
    *2- Uploader le programme dans la carte
    *3- Remettre les "//" avant newDefaultSettings,
    *4- Uploader le programme à nouveau
   */
   //newDefaultSettings();
+  //Lecture des derniers paramètres enregistrés
   loadPreviousSettings();
-  
-  //Modification des variables de contrôles
-  rmod = (rmodE - 11);                      //modificateur relais
-  vmod = (vmodE - 11);                      //modificateur VENTilation
-  f1mod = (f1modE - 11);                    //modificateur fournaise1
-  f2mod = (f2modE - 11);                    //modificateur fournaise2
-  SRmod = srmod-60;
-  SSmod = ssmod-60;
-
-  t = rtc.getTime();
-  heures = t.hour;
-  minutes = t.min;
-  
-  if (((heures == HSR)  && (minutes >= MSR))||((heures > HSR) && (heures < HP2))||((heures == HP2)  && (minutes < MP2))){
-    TEMP_CIBLE = TEMP_CIBLEP1;
-    PROGRAMME = 1;
-  }
-  else if (((heures == HP2)  && (minutes >= MP2))||((heures > HP2) && (heures < HP3))||((heures == HP3)  && (minutes < MP2))){
-    TEMP_CIBLE = TEMP_CIBLEP2;
-    PROGRAMME = 2;
-  }
-  else if (((heures == HSS)  && (minutes >= HSS))||(heures > HSS)||(heures < HSR)||((heures == HSR)  && (minutes < MSR))){
-    TEMP_CIBLE = TEMP_CIBLEP3;
-    PROGRAMME = 3;
-  }
-  
-  TEMP_ROLLUP = TEMP_CIBLE + rmod;
-  TEMP_VENTILATION = TEMP_CIBLE + vmod;
-  TEMP_FOURNAISE1 = TEMP_CIBLE + f1mod;
-  TEMP_FOURNAISE2 = TEMP_CIBLE + f2mod;
-  ROTATION_TIME = (rotation * 1000);       //temps de rotation des moteurs(en mili-secondes)
-  PAUSE_TIME = (pause * 1000);             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
-  rampingInterval = (unsigned long)ramping*60*1000;
-  Serial.println(ramping);
-  Serial.println(rampingInterval);
-
-
-  pinMode(A1, INPUT_PULLUP); // sets analog pin for input 
-  //Définition et initalisation des sorties
-  pinMode(menuPin, INPUT_PULLUP);
-  pinMode(ROLLUP_OPEN, OUTPUT);
-  digitalWrite(ROLLUP_OPEN, LOW);
-  pinMode(ROLLUP_CLOSE, OUTPUT);
-  digitalWrite(ROLLUP_CLOSE, LOW);
-  pinMode(CHAUFFAGE1, OUTPUT);
-  digitalWrite(CHAUFFAGE1, LOW);
-  pinMode(CHAUFFAGE2, OUTPUT);
-  digitalWrite(CHAUFFAGE2, LOW);
-  pinMode(FAN, OUTPUT);
-  digitalWrite(FAN, LOW);
-
-  /* TimeLord Object Initialization */
-  myLord.TimeZone(TIMEZONE * 60);
-  myLord.Position(LATITUDE, LONGITUDE);
-  myLord.DstRules(3,2,11,1,60); // DST Rules for USA
-
+  //Mise à jour des variables et définition des I/Os
+  convertEEPROMData();
   getDateAndTime();
-
+  //Définition des variables de temps
+  setSunriseSunSet();
+  getDateAndTime();
+  setProgram();
+  
+  switch(PROGRAMME){
+    case 1: TEMP_CIBLE = TEMP_CIBLEP1; break;
+    case 2: TEMP_CIBLE = TEMP_CIBLEP2; break;
+    case 3: TEMP_CIBLE = TEMP_CIBLEP3; break;
+  }
+  
+  setOutputsTempCible();
+  setIOS();
 }
 
 //**************************************************************
@@ -223,36 +184,41 @@ void setup() {
 void loop() {
   //MODE MENU
   if (digitalRead(menuPin) == LOW) {
-    menuPinState = 0;
-    if (menuPinState != lastMenuPinState) {
-      displayMenu(menu);
-    }
     Menu(menu);
-    lastMenuPinState = menuPinState;
     delay(50);
   }
-  
+
   //MODE CONTROLE
   else if (digitalRead(menuPin) == HIGH) {
-    menuPinState = 1;
-    lcd.noBlink();
-    if (menuPinState != lastMenuPinState) {
-      displayTempTimeStatus();
-      displayRollupStatus();
-      displayFanHeaterStatus();
-    }
-    Controle();
-    lastMenuPinState = menuPinState;
+    //Protocole de controle
+    checkSunriseSunset();
+    setProgram();
+    startRamping();
+    getTemperature();
+    lcdDisplay();
+    //serialDisplay();
+    relayLogic();
+    //Pause entre chaque cycle
     delay(SLEEPTIME);
   }
 }
 
 
 //**************************************************************
-//****************       MACROS      ***************************
+//****************    MACROS - SETUP     ***********************
 //**************************************************************
 
-//*********************EEPROM***********************************
+void initLCD(){
+  lcd.begin(20, 4);
+  lcd.setBacklightPin(BACKLIGHT_PIN, POSITIVE);
+  lcd.setBacklight(HIGH);
+  lcd.clear();
+}
+void initTimeLord(){
+  myLord.TimeZone(TIMEZONE * 60);
+  myLord.Position(LATITUDE, LONGITUDE);
+  myLord.DstRules(3,2,11,1,60); // DST Rules for USA
+}
 
 void newDefaultSettings() {
   EEPROM.write(0, HYST_ROLLUP);
@@ -296,149 +262,247 @@ void loadPreviousSettings() {
   ramping = EEPROM.read(19);
 }
 
-//**********************CONTROLE********************************
+void setIOS(){
+  //Definition des entrées
+  pinMode(LCDKEYPAD, INPUT_PULLUP);
+  //Définition et initalisation des sorties
+  pinMode(INTERRUPT_SWITCH, INPUT_PULLUP);
+  pinMode(menuPin, INPUT_PULLUP);
+  pinMode(ROLLUP_OPEN, OUTPUT);
+  digitalWrite(ROLLUP_OPEN, LOW);
+  pinMode(ROLLUP_CLOSE, OUTPUT);
+  digitalWrite(ROLLUP_CLOSE, LOW);
+  pinMode(CHAUFFAGE1, OUTPUT);
+  digitalWrite(CHAUFFAGE1, LOW);
+  pinMode(CHAUFFAGE2, OUTPUT);
+  digitalWrite(CHAUFFAGE2, LOW);
+  pinMode(FAN, OUTPUT);
+  digitalWrite(FAN, LOW);
+}
 
 
 
-void Controle() {
-  //-----------------Horloge----------------  
+
+
+//**************************************************************
+//****************    MACROS - CONTROLE     ********************
+//**************************************************************
+
+void checkSunriseSunset(){
+  t = rtc.getTime();
+  int actual_day = t.date;
+
+  if (sunTime[3] != actual_day){
+      setSunriseSunSet();
+  }
   getDateAndTime();
-  checkSunriseSunset();
-  
-  SRmod = (int)srmod-60;
-  SSmod = (int)ssmod-60;
-  HP1 = HSR;
-  MP1 = MSR + SRmod;
-  convertDecimalToTime(&HP1, &MP1);
-  HP3 = HSS;
-  MP3 = MSS + SSmod;
-  convertDecimalToTime(&HP3, &MP3);
-  
-  heures = sunTime[2];
-  minutes = sunTime[1];
+}
 
-  if (((heures == HSR)  && (minutes >= MSR))||((heures > HSR) && (heures < HP2))||((heures == HP2)  && (minutes < MP2))){
-    NEW_TEMP_CIBLE = TEMP_CIBLEP1;
+void setProgram(){
+  P1[HEURE] = sunRise[HEURE];
+  P1[MINUTE] = sunRise[MINUTE] + SRmod;
+  convertDecimalToTime(&P1[HEURE], &P1[MINUTE]);
+  P3[HEURE] = sunSet[HEURE];
+  P3[MINUTE] = sunSet[MINUTE] + SSmod;
+  convertDecimalToTime(&P3[HEURE], &P3[MINUTE]);
+  if (((sunTime[HEURE] == P1[HEURE])  && (sunTime[MINUTE] >= P1[MINUTE]))||((sunTime[HEURE] > P1[HEURE]) && (sunTime[HEURE] < P2[HEURE]))||((sunTime[HEURE] == P2[HEURE])  && (sunTime[MINUTE] < P2[MINUTE]))){
     PROGRAMME = 1;
   }
-  else if (((heures == HP2)  && (minutes >= MP2))||((heures > HP2) && (heures < HP3))||((heures == HP3)  && (minutes < MP2))){
-    NEW_TEMP_CIBLE = TEMP_CIBLEP2;
+  else if (((sunTime[HEURE] == P2[HEURE])  && (sunTime[MINUTE] >= P2[MINUTE]))||((sunTime[HEURE] > P2[HEURE]) && (sunTime[HEURE] < P3[HEURE]))||((sunTime[HEURE] == P3[HEURE])  && (sunTime[MINUTE] < P2[MINUTE]))){
     PROGRAMME = 2;
   }
-  else if (((heures == HSS)  && (minutes >= HSS))||(heures > HSS)||(heures < HSR)||((heures == HSR)  && (minutes < MSR))){
-    NEW_TEMP_CIBLE = TEMP_CIBLEP3;
+  else if (((sunTime[HEURE] == P3[HEURE])  && (sunTime[MINUTE] >= P3[HEURE]))||(sunTime[HEURE] > P3[HEURE])||(sunTime[HEURE] < P1[HEURE])||((sunTime[HEURE] == P1[HEURE])  && (sunTime[MINUTE] < P1[MINUTE]))){
     PROGRAMME = 3;
   }
-  startRamping();
-  //--------------DS18B20--------------------
-  sensors.requestTemperatures();
-  greenhouseTemperature = sensors.getTempCByIndex(0);
-  //--------------Affichage------------------
-    lcdDisplay();
-  //Debugging
-  serialDisplay();
-  //--------------Relais--------------------
-  //Programme d'ouverture/fermeture des rollups
-  if (greenhouseTemperature < (TEMP_ROLLUP - HYST_ROLLUP)) {
-    closeSides();
-  } else if (greenhouseTemperature > TEMP_ROLLUP) {
-    openSides();
+}
+//Programme de courbe de température
+void startRamping(){
+
+  switch(PROGRAMME){
+    case 1: NEW_TEMP_CIBLE = TEMP_CIBLEP1; break;
+    case 2: NEW_TEMP_CIBLE = TEMP_CIBLEP2; break;
+    case 3: NEW_TEMP_CIBLE = TEMP_CIBLEP3; break;
   }
-  //Programme fournaise1
-  if (greenhouseTemperature < TEMP_FOURNAISE1) {
-    setHeater1(ON);
-    digitalWrite(CHAUFFAGE1, ON);
-  } else if (greenhouseTemperature > (TEMP_FOURNAISE1 + HYST_FOURNAISE1)) {
-    setHeater1(OFF);
-    digitalWrite(CHAUFFAGE1, OFF);
+
+  if (NEW_TEMP_CIBLE > TEMP_CIBLE){
+    unsigned long rampingCounter = millis();
+    if(rampingCounter - lastCount > rampingInterval) {
+      lastCount = rampingCounter;
+      TEMP_CIBLE += 0.5;
+    }
   }
-  //Programme fournaise2
-  if (greenhouseTemperature < TEMP_FOURNAISE2) {
-    setHeater2(ON);
-    digitalWrite(CHAUFFAGE2, ON);
-  } else if (greenhouseTemperature > (TEMP_FOURNAISE2 + HYST_FOURNAISE2)) {
-    setHeater2(OFF);
-    digitalWrite(CHAUFFAGE2, OFF);
-  }
-  //Programme ventilation forcée
-  if ((greenhouseTemperature > TEMP_VENTILATION)&&(incrementCounter == 100)) {
-    setFan(ON);
-    digitalWrite(FAN, ON);
-  } else if (greenhouseTemperature < (TEMP_VENTILATION - HYST_VENT)) {
-    setFan(OFF);
-    digitalWrite(FAN, OFF);
+  else if (NEW_TEMP_CIBLE < TEMP_CIBLE){
+    unsigned long rampingCounter = millis();
+    if(rampingCounter - lastCount > rampingInterval) {
+      lastCount = rampingCounter;
+      TEMP_CIBLE -= 0.5;
+    }
   }
 }
+
+void getTemperature(){
+  sensors.requestTemperatures();
+  greenhouseTemperature = sensors.getTempCByIndex(0);
+}
+
+void lcdDisplay() {
+  lcd.noBlink();
+  //Si passe du mode menu au mode controle...
+  if (menuPinState == 0) {
+    lcdPrintTemp();
+    lcdPrintTime();
+    lcdPrintRollups();
+    lcdPrintOutputsStatus();
+    menuPinState = 1;
+  }
+  //Séquence normale...
+  lcdPrintTemp();
+  lcdPrintTime();
+  lcdPrintRollups();
+  lcdPrintOutputsStatus();
+}
+
+void serialDisplay(){
+//--------------Affichage sériel--------------------
+  Serial.println(F(""));
+  Serial.println(F("-----------------------"));
+  // Send date
+  Serial.print(rtc.getDOWStr()); Serial.print(F(",  ")); Serial.println(rtc.getDateStr());
+  Serial.print(F("Lever du soleil : "));   Serial.print(sunRise[HEURE]); Serial.print(F(":")); Serial.println(sunRise[MINUTE]);
+  Serial.print(F("Coucher du soleil : ")); Serial.print(sunSet[HEURE]); Serial.print(F(":")); Serial.println(sunSet[MINUTE]);
+  // Send time
+  serialPrintDigits(sunTime[HEURE]); Serial.print(sunTime[HEURE]); Serial.print(F(":")); serialPrintDigits(sunTime[MINUTE]); Serial.println(sunTime[MINUTE]);
+  Serial.print(F("PROGRAMME : "));  Serial.println(PROGRAMME);
+
+  Serial.println(F("-----------------------"));
+  Serial.print(F("Temperature cible :")); Serial.print(TEMP_CIBLE); Serial.println(F(" C"));
+  Serial.print(F("Nouvelle temperature cible :")); Serial.print(NEW_TEMP_CIBLE); Serial.println(F(" C"));
+
+  Serial.print(F("Temperature actuelle: ")); Serial.print(greenhouseTemperature); Serial.println(" C");
+  Serial.println(F("-----------------------"));
+  if (fan[0] == false) {    Serial.println(F("FAN: OFF"));  }
+  else if (fan[0] == true) {    Serial.println(F("FAN: ON"));  }
+  if (heating[0] == false) {    Serial.println(F("HEATING1: OFF"));  }
+  else if (heating[0] == true) {    Serial.println(F("HEATING1: ON"));  }
+  if (heating[1] == false) {    Serial.println(F("HEATING2 : OFF"));  }
+  else if (heating[1] == true) {    Serial.println(F("HEATING2 : ON"));  }
+}
+
+void relayLogic(){
+  lcd.noBlink();
+  //Programme d'ouverture/fermeture des rollups
+  setOutputsTempCible();
+  if (rollups == true){
+    if((incrementCounter == 6)||(incrementCounter<0)){Serial.println("ERROR");}
+    if (greenhouseTemperature < (TEMP_ROLLUP - HYST_ROLLUP)) {
+      closeSides();
+    } else if (greenhouseTemperature > TEMP_ROLLUP) {
+      openSides();
+    }
+  }
+
+  //Programme fournaise1
+  if (heater[0] == true){
+    if (greenhouseTemperature < TEMP_FOURNAISE1) {
+      //setHeater(0, ON);
+      digitalWrite(CHAUFFAGE1, ON);
+    } else if (greenhouseTemperature > (TEMP_FOURNAISE1 + HYST_FOURNAISE1)) {
+      //setHeater(0, OFF);
+      digitalWrite(CHAUFFAGE1, OFF);
+    }
+  }
+
+  //Programme fournaise2
+  if (heater[1] == true){
+    if (greenhouseTemperature < TEMP_FOURNAISE2) {
+      //setHeater(1, ON);
+      digitalWrite(CHAUFFAGE2, ON);
+    } else if (greenhouseTemperature > (TEMP_FOURNAISE2 + HYST_FOURNAISE2)) {
+      //setHeater(1, OFF);
+      digitalWrite(CHAUFFAGE2, OFF);
+    }
+  }
+  //Programme ventilation forcée
+  if (cooler[0] == true){
+    if ((greenhouseTemperature > TEMP_VENTILATION)&&(digitalRead(INTERRUPT_SWITCH) == 0)){
+      //setFan(0, ON);
+      digitalWrite(FAN, ON);
+    } else if ((greenhouseTemperature < (TEMP_VENTILATION - HYST_VENT))||(digitalRead(INTERRUPT_SWITCH) == 1)) {
+      //setFan(0, OFF);
+      digitalWrite(FAN, OFF);
+    }
+  }
+
+
+}
+
+//**************************************************************
+//****************    MACROS - AUTRES     **********************
+//**************************************************************
 
 void getDateAndTime(){
   t = rtc.getTime();
   sunTime[5] = t.year-2000;
   sunTime[4] = t.mon;
   sunTime[3] = t.date;
-  sunTime[2] = t.hour;
-  sunTime[1] = t.min;
+  sunTime[HEURE] = t.hour;
+  sunTime[MINUTE] = t.min;
   sunTime[0] = t.sec;
   myLord.DST(sunTime);
 }
 
-void checkSunriseSunset(){
-  if (sunTime[3] != last_day){
-
-      myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
-      myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
-      HSR = sunTime[2];
-      MSR = sunTime[1];
-          
-      /* Sunset: */
-      myLord.SunSet(sunTime); // Computes Sun Set. Prints:
-      myLord.DST(sunTime);
-      HSS = sunTime[2];
-      MSS = sunTime[1];
-
-     last_day = sunTime[3];
-     
-     getDateAndTime();
-
-  }
-}
-
 //Programme pour convertir l'addition de nombres décimales en format horaire
-void convertDecimalToTime(int * const heure, int * const minut){
+void convertDecimalToTime(byte * const heure, byte * const minut){
   if ((*minut > 59) && (*minut < 120)){
     *heure += 1;
     *minut = *minut - 60;
   }
-  
+
   else if ((*minut < 0)&& (minut >= -60)){
     *heure -= 1;
     *minut = 60 - *minut;
   }
 }
-  
-//Programme de courbe de température
-void startRamping(){
-  if (NEW_TEMP_CIBLE > TEMP_CIBLE){
-    unsigned long rampingCounter = millis();
-    if(rampingCounter - lastCount > rampingInterval) {
-      // save the last time you blinked the LED 
-      lastCount = rampingCounter;
-      TEMP_CIBLE += 0.5;   
-      Serial.println("Ramping succeeded");
-    }
-  } 
-  else if (NEW_TEMP_CIBLE < TEMP_CIBLE){
-    unsigned long rampingCounter = millis();
-    if(rampingCounter - lastCount > rampingInterval) {
-      // save the last time you blinked the LED 
-      lastCount = rampingCounter;
-      TEMP_CIBLE -= 0.5;   
-      Serial.println("Ramping succeeded");
-    } 
-  }
+void convertEEPROMData(){
+  rmod = (rmodE - 11);                      //modificateur relais
+  vmod = (vmodE - 11);                      //modificateur VENTilation
+  f1mod = (f1modE - 11);                    //modificateur fournaise1
+  f2mod = (f2modE - 11);                    //modificateur fournaise2
+  SRmod = srmod-60;
+  SSmod = ssmod-60;
+  ROTATION_TIME = (rotation * 1000);       //temps de rotation des moteurs(en mili-secondes)
+  PAUSE_TIME = (pause * 1000);             //temps d'arrêt entre chaque ouverture/fermeture(en mili-secondes)
+  rampingInterval = (unsigned long)ramping*60*1000;
+  P2[HEURE] = HP2;
+  P2[MINUTE] = MP2;
+}
+
+void setSunriseSunSet(){
+  myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
+  myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
+  sunRise[HEURE] = sunTime[HEURE];
+  sunRise[MINUTE] = sunTime[MINUTE];
+
+  /* Sunset: */
+  myLord.SunSet(sunTime); // Computes Sun Set. Prints:
+  myLord.DST(sunTime);
+  sunSet[HEURE] = sunTime[HEURE];
+  sunSet[MINUTE] = sunTime[MINUTE];
+}
+
+void setOutputsTempCible(){
+    TEMP_ROLLUP = TEMP_CIBLE + rmod;
+    TEMP_VENTILATION = TEMP_CIBLE + vmod;
+    TEMP_FOURNAISE1 = TEMP_CIBLE + f1mod;
+    TEMP_FOURNAISE2 = TEMP_CIBLE + f2mod;
 }
 
 //Programme d'ouverture des rollup
 void openSides() {
+  if (firstOpening == true){
+    incrementCounter = 0;
+    firstOpening = false;
+  }
   if (incrementCounter < increments) {
   incrementCounter += 1;
     Serial.println(F(""));
@@ -449,16 +513,25 @@ void openSides() {
     delay(ROTATION_TIME);
     digitalWrite(ROLLUP_OPEN, OFF);
     Serial.println(F("  Done opening"));
+    Serial.print("incrementCounter:");
+    Serial.println(incrementCounter);
+    Serial.print("increments:");
+    Serial.println(increments);
     lcd.setCursor(0, 1);
     lcd.print(F("ROLLUPS:  "));
     lcd.setCursor(9, 1);
     lcd.print(incrementCounter);
     delay(PAUSE_TIME);
   }
+
 }
 
 //Programme de fermeture des rollups
 void closeSides() {
+  if (firstOpening == true){
+    incrementCounter = 5;
+    firstOpening = false;
+  }
   if (incrementCounter > 0) {
     incrementCounter -= 1;
     Serial.println(F(""));
@@ -478,189 +551,42 @@ void closeSides() {
 }
 
 
-//État de la première fournaise
-void setHeater1(int heaterCommand1) {
-  if ((heaterCommand1 == ON) && (heating1 == false)) {
-    Serial.println(F(""));
-    Serial.println(F("  Start heating1"));
-    heating1 = true;
-  } else if ((heaterCommand1 == OFF) && (heating1 == true)) {
-    Serial.println(F(""));
-    Serial.println(F("  Stop heating1"));
-    heating1 = false;
-  }
+void lcdPrintRollups(){
+    lcd.setCursor(0, 1); lcd.print(F("                    "));
+    lcd.setCursor(0, 1); lcd.print(F("ROLLUPS:  "));
+    lcd.setCursor(9, 1); lcd.print(incrementCounter);
+ }
+void lcdPrintTemp(){
+    lcd.setCursor(0,0); lcd.print(F("                    "));
+    lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print(greenhouseTemperature); lcd.print(F("C |TC:"));
+    lcd.setCursor(13,0); lcd.print(TEMP_CIBLE); lcd.print(F("C"));
+}
+void lcdPrintTime(){
+    lcd.setCursor(9,3); lcd.print(F("|(P")); lcd.print(PROGRAMME); lcd.print(F(":"));
+    lcd.setCursor(14,3); lcdPrintDigits(sunTime[HEURE]); lcd.print(F(":")); lcdPrintDigits(sunTime[MINUTE]);
+    lcd.setCursor(19,3); lcd.print(F(")"));
 }
 
-//État de la deuxième fournaise
-void setHeater2(int heaterCommand2) {
-  if ((heaterCommand2 == ON) && (heating2 == false)) {
-    Serial.println(F(""));
-    Serial.println(F("  Start heating2"));
-    heating2 = true;
-  } else if ((heaterCommand2 == OFF) && (heating2 == true)) {
-    Serial.println(F(""));
-    Serial.println(F("  Stop heating2"));
-    heating2 = false;
-  }
-}
+void lcdPrintOutputsStatus(){
+  lcd.setCursor(0, 2); lcd.print(F("                    "));
+  lcd.setCursor(0, 3); lcd.print(F("         "));
 
-//État de la ventilation
-void setFan(int fanCommand) {
-  if ((fanCommand == ON) && (fan == false)) {
-    Serial.println(F(""));
-    Serial.println(F("  Start fan"));
+  if (cooler[0] == true){
+    lcd.setCursor(0, 3); lcd.print(F("FAN:"));
+    if (digitalRead(FAN) == OFF) {      lcd.setCursor(5, 3); lcd.print(F("OFF"));    }
+    else if (digitalRead(FAN) == ON) {      lcd.setCursor(5, 3); lcd.print(F("ON "));    }
+  }
 
-    fan = true;
-  } else if ((fanCommand == OFF) && (fan == true)) {
-    Serial.println(F(""));
-    Serial.println(F("  Stop fan"));
-    fan = false;
+  if (heater[0] == true){
+    lcd.setCursor(0, 2); lcd.print(F("H1:"));
+    if (digitalRead(CHAUFFAGE1) == OFF) {      lcd.setCursor(5, 2); lcd.print(F("OFF |"));    }
+    else if (digitalRead(CHAUFFAGE1) == ON) {      lcd.setCursor(5, 2); lcd.print(F("ON  |"));    }
   }
-}
 
-void lcdDisplay() {
-  lcd.setCursor(0, 0);
-  displayTempTimeStatus();
-  if (incrementCounter != last_incrementCounter) {
-    displayRollupStatus();
-  }
-  if ((fan != last_fan) || (heating1 != last_heating1)) {
-    displayFanHeaterStatus();
-  }
-  last_incrementCounter = incrementCounter;
-  last_fan = fan;
-  last_heating1 = heating1;
-  last_heating2 = heating2;
-}
-
-void displayRollupStatus() {
-  lcd.setCursor(0, 1);
-  lcd.print(F("                    "));
-  lcd.setCursor(0, 1);
-  lcd.print(F("ROLLUPS:  "));
-  lcd.setCursor(9, 1);
-  lcd.print(incrementCounter);
-}
-
-void displayFanHeaterStatus() {
-  lcd.setCursor(0, 2);
-  lcd.print(F("                    "));
-  lcd.setCursor(0, 3);
-  lcd.print(F("         "));
-  if (fan == false) {
-    lcd.setCursor(0, 3);
-    lcd.print(F("FAN:"));
-    lcd.setCursor(5, 3);
-    lcd.print(F("OFF"));
-  }
-  else if (fan == true) {
-    lcd.setCursor(0, 3);
-    lcd.print(F("FAN:"));
-    lcd.setCursor(5, 3);
-    lcd.print(F("ON "));
-  }
-  if (heating1 == false) {
-    lcd.setCursor(0, 2);
-    lcd.print(F("H1:"));
-    lcd.setCursor(5, 2);
-    lcd.print(F("OFF |"));
-  }
-  else if (heating1 == true) {
-    lcd.setCursor(0, 2);
-    lcd.print(F("H1: "));
-    lcd.setCursor(5, 2);
-    lcd.print(F("ON  |"));
-  }
-  if (heating2 == false) {
-    lcd.setCursor(11, 2);
-    lcd.print(F("H2:"));
-    lcd.setCursor(16, 2);
-    lcd.print(F("OFF"));
-  }
-  else if (heating2 == true) {
-    lcd.setCursor(11, 2);
-    lcd.print(F("H2: "));
-    lcd.setCursor(16, 2);
-    lcd.print(F("ON "));
-  }
-}
-  
-void displayTempTimeStatus() {
-  lcd.setCursor(0,0);
-  lcd.print(F("                    "));
-  lcd.setCursor(0,0);
-  lcd.print(F("T:"));
-  lcd.print(greenhouseTemperature);
-  lcd.print(F("C |TC:"));
-  lcd.setCursor(13,0);
-  lcd.print(TEMP_CIBLE);
-  lcd.print(F(".00C"));
-  lcd.setCursor(9,3);
-  lcd.print(F("|(P"));
-  lcd.print(PROGRAMME);
-  lcd.print(F(":"));
-  lcd.setCursor(14,3);
-  lcdPrintDigits(sunTime[2]);
-  lcd.print(F(":"));
-  lcdPrintDigits(sunTime[1]);
-  lcd.setCursor(19,3);
-  lcd.print(F(")"));
-}
-void serialDisplay(){
-//--------------Affichage sériel--------------------
-  Serial.println(F(""));
-  Serial.println(F("-----------------------"));
-  // Send date
-  Serial.print(rtc.getDOWStr());
-  delay(100);
-  Serial.print(F(",  "));
-  Serial.println(rtc.getDateStr());
-  Serial.print(F("Lever du soleil : "));
-  Serial.print(HSR);
-  Serial.print(F(":"));
-  Serial.println(MSR);
-  Serial.print(F("Coucher du soleil : "));
-  Serial.print(HSS);
-  Serial.print(F(":"));
-  Serial.println(MSS);
-  // Send time
-  serialPrintDigits(sunTime[2]);
-  Serial.print(sunTime[2]);
-  Serial.print(F(":"));
-  serialPrintDigits(sunTime[1]);
-  Serial.println(sunTime[1]);
-  Serial.print(F("PROGRAMME : "));
-  Serial.println(PROGRAMME);
-
-  Serial.println(F("-----------------------"));
-  Serial.print(F("Temperature cible :"));
-  Serial.print(TEMP_CIBLE);
-  Serial.println(F(" C"));
-  Serial.print(F("Nouvelle temperature cible :"));
-  Serial.print(NEW_TEMP_CIBLE);
-  Serial.println(F(" C"));
-
-  Serial.print(F("Temperature actuelle: "));
-  Serial.print(greenhouseTemperature);
-  Serial.println(" C");
-  Serial.println(F("-----------------------"));
-  if (fan == false) {
-    Serial.println(F("FAN: OFF"));
-  }
-  else if (fan == true) {
-    Serial.println(F("FAN: ON"));
-  }
-  if (heating1 == false) {
-    Serial.println(F("HEATING1: OFF"));
-  }
-  else if (heating1 == true) {
-    Serial.println(F("HEATING1: ON"));
-  }
-  if (heating2 == false) {
-    Serial.println(F("HEATING2 : OFF"));
-  }
-  else if (heating2 == true) {
-    Serial.println(F("HEATING2 : ON"));
+  if (heater[1] == true){
+    lcd.setCursor(11, 2); lcd.print(F("H2:"));
+    if (digitalRead(CHAUFFAGE2) == OFF) {      lcd.setCursor(16, 2); lcd.print(F("OFF"));    }
+    else if (digitalRead(CHAUFFAGE2) == ON) {      lcd.setCursor(16, 2); lcd.print(F("ON "));    }
   }
 }
 
@@ -679,10 +605,18 @@ void serialPrintDigits(int digits){
 
 
 
-//******************MENU****************************************
+//**************************************************************
+//****************    MACROS - MENU     ***********************
+//**************************************************************
 
 void Menu(int x) {
-  int a = analogRead(A1);
+
+  if (menuPinState == 1) {
+    displayMenu(menu);
+    menuPinState = 0;
+  }
+
+  int a = analogRead(A0);
   Serial.println(a);
   buttonState(a);
 
@@ -711,7 +645,7 @@ void buttonState(int x) {
   else if (x < 100) {
     state = 2;
   }
-  else if (x < 120) {
+  else if (x < 150) {
     state = 3;
   }
   else {
@@ -866,14 +800,14 @@ void selectMenu(int x, int y) {
         case 2:
           lcd.noBlink();
           clearPrintTitle();
-                  
+
           t = rtc.getTime();
-          sunTime[2] = t.hour;
-          sunTime[1] = t.min;
+          sunTime[HEURE] = t.hour;
+          sunTime[MINUTE] = t.min;
           sunTime[0] = t.sec;
           myLord.DST(sunTime);
-          
-          lcd.setCursor(0, 1); lcd.print(F("Time : ")); lcdPrintDigits(sunTime[2]);lcd.print(":"); lcdPrintDigits(sunTime[1]);lcd.print(":");lcdPrintDigits(sunTime[1]);
+
+          lcd.setCursor(0, 1); lcd.print(F("Time : ")); lcdPrintDigits(sunTime[HEURE]);lcd.print(":"); lcdPrintDigits(sunTime[MINUTE]);lcd.print(":");lcdPrintDigits(sunTime[MINUTE]);
           break;
         case 3: switchmenu(11); break;
         case 4: switchmenu(12); break;
@@ -933,14 +867,14 @@ void selectMenu(int x, int y) {
     //SET HOUR
     case 13 :
       t = rtc.getTime();
-      sunTime[2] = t.hour;
+      sunTime[HEURE] = t.hour;
       myLord.DST(sunTime);
-      
-      if ((t.hour != sunTime[2]) && (y < Nbitems)) {
+
+      if ((t.hour != sunTime[HEURE]) && (y < Nbitems)) {
         hr = y-1;
         switchmenu(131);
       }
-      else if ((t.hour == sunTime[2]) && (y < Nbitems)) {
+      else if ((t.hour == sunTime[HEURE]) && (y < Nbitems)) {
         hr = y;
         switchmenu(131);
       }
@@ -1044,7 +978,7 @@ void selectMenu(int x, int y) {
           lcd.noBlink();
           clearPrintTitle();
           lcd.setCursor(0, 1); lcd.print(F("FAN : "));
-          if (fan == false) {
+          if (fan[1] == false) {
             lcd.print(F("OFF"));
           }
           else {
@@ -1076,7 +1010,7 @@ void selectMenu(int x, int y) {
           lcd.noBlink();
           clearPrintTitle();
           lcd.setCursor(0, 1); lcd.print(F("FOURNAISE(1) : "));
-          if (heating1 == false) {
+          if (heating[1] == false) {
             lcd.print(F("OFF"));
           }
           else {
@@ -1089,7 +1023,7 @@ void selectMenu(int x, int y) {
           lcd.noBlink();
           clearPrintTitle();
           lcd.setCursor(0, 1); lcd.print(F("FOURNAISE(2) : "));
-          if (heating1 == false) {
+          if (heating[1] == false) {
             lcd.print(F("OFF"));
           }
           else {
@@ -1134,21 +1068,21 @@ void selectMenu(int x, int y) {
         case 1:
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(HP1); lcd.print(F(":")); lcd.print(MP1); lcd.print(F(" | HF: ")); lcd.print(HP2); lcd.print(F(":")); lcd.print(MP2);
+          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P1[HEURE]); lcd.print(F(":")); lcd.print(P1[MINUTE]); lcd.print(F(" | HF: ")); lcd.print(P2[HEURE]); lcd.print(F(":")); lcd.print(P2[MINUTE]);
           lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(TEMP_CIBLEP1); lcd.print(F("C"));
           lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(ramping); lcd.print(F(" min"));
           break;
         case 2:
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(HP2); lcd.print(F(":")); lcd.print(MP2); lcd.print(F(" | HF: ")); lcd.print(HP3); lcd.print(F(":")); lcd.print(MP3);
+          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P2[HEURE]); lcd.print(F(":")); lcd.print(P2[MINUTE]); lcd.print(F(" | HF: ")); lcd.print(P3[HEURE]); lcd.print(F(":")); lcd.print(P3[HEURE]);
           lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(TEMP_CIBLEP2); lcd.print(F("C"));
           lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(ramping); lcd.print(F(" min"));
           break;
         case 3:
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(HP3); lcd.print(F(":")); lcd.print(MP3); lcd.print(F(" | HF: ")); lcd.print(HP1); lcd.print(F(":")); lcd.print(MP1);
+          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P3[HEURE]); lcd.print(F(":")); lcd.print(P3[HEURE]); lcd.print(F(" | HF: ")); lcd.print(P1[HEURE]); lcd.print(F(":")); lcd.print(P1[MINUTE]);
           lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(TEMP_CIBLEP3); lcd.print(F("C"));
           lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(ramping); lcd.print(F(" min"));
           break;
@@ -1165,7 +1099,7 @@ void selectMenu(int x, int y) {
         case 6: switchmenu(52); break;
         case 7: switchmenu(53); break;
         case 8: switchmenu(54); break;
-        case 9: switchmenu(55); break; 
+        case 9: switchmenu(55); break;
         case 10: switchmenu(0); break;
       }
       break;
@@ -1214,7 +1148,7 @@ void selectMenu(int x, int y) {
     //SET HOUR
     case 521 :
       if (y < Nbitems) {
-        HP2 = y;
+        P2[HEURE] = y;
         switchmenu(5211);
         EEPROM.write(7, HP2);
       }
@@ -1226,7 +1160,7 @@ void selectMenu(int x, int y) {
     //SET MINUTES
     case 5211 :
       if (y < Nbitems) {
-        MP2 = (y - 1);
+        P2[MINUTE] = (y - 1);
         switchmenu(52);
         EEPROM.write(8, MP2);
       }
@@ -1360,7 +1294,5 @@ void selectMenu(int x, int y) {
       }
       break;
   }
-  
+
 }
-
-
