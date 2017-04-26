@@ -13,7 +13,7 @@ Allow control on :
     Parameters for rollups are :
     - Number of increments
     - Rotation time during each increment
-    - Pause time during each increment
+    - Pause time beatween each increment
     - Activation temperature modificator (according to target temperature)
     - Hysteresis
     - A safety mode : allow a switch to stop the increment counter
