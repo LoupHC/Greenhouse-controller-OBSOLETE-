@@ -42,6 +42,7 @@ Material needed :
 - 3 buttons 
 - 2 on/off switch
 - jumpers and wires
+[TO BE COMPLETED]
 
 Version of arduino IDE : 1.6.12
 
