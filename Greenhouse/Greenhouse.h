@@ -96,6 +96,26 @@ Released into the public domain.
     void initRollupOutput(byte number, byte rollup_open, byte rollup_close, boolean state);
     void initFanOutput(byte number, byte fanPin, boolean state);
     void initHeaterOutput(byte number, byte heaterPin, boolean state);
+
+    //*****************Affichage*************
+    int programsE(byte index);
+    int srmodE(byte index);
+    int ssmodE(byte index);
+    int targetTempE(byte index);
+    unsigned long rampingE();
+    int rmodE(byte index);
+    int vmodE(byte index);
+    int hmodE(byte index);
+    int rhystE(byte index);
+    int vhystE(byte index);
+    int hhystE(byte index);
+    unsigned int pauseE(byte index);
+    unsigned int rotationE(byte index);
+    int incrementsE(byte index);
+    boolean rollupSafetyE(byte index);
+    boolean fanSafetyE(byte index);
+
+    //*****************Outils****************
     byte negativeToByte(int data, byte mod);
     int byteToNegative(int data, byte mod);
     byte PROGRAM_TIME(byte counter, byte timeData);
