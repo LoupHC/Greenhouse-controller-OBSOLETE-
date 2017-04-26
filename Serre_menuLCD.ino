@@ -10,8 +10,11 @@
 #include <Greenhouse.h>
 
 //*****************DEFINITIONS***********************
-//#define DS18B20
-#define SHT1X
+//Select your temperature probe
+#define DS18B20
+//define SHT1X
+
+//Select your ouput pins
 #define LCDKEYPAD A0
 #define MENU_PIN 2
 const byte SAFETY_SWITCH[2] = {2,3};
@@ -57,7 +60,6 @@ boolean fanSafety[sizeof(fans)];
 boolean rollupSafety[sizeof(rollups)];
 
 //Sonde de température
-float greenhouseTemperature;     //données de la sonde de température
 boolean failedSensor = false;
 
 //Poisition des Rollups
@@ -93,6 +95,8 @@ int menu = 0;
 byte Nbitems = 6;
 char* menuitems[10];
 int yr; byte mt; byte dy; byte hr; byte mn; byte sc;
+byte nr; byte inc; unsigned int rot; unsigned int p; int mod; byte hys; boolean sfty;
+byte typ; byte tt;
 
 
 //**************************************************************
@@ -114,6 +118,7 @@ void setup() {
   defineProgram(3, CLOCK, 11, 10, 22);
   defineProgram(4, SS, 0, -60, 28);
   defineProgram(5, SS, 0, -2, 18);
+
   defineRollup(1, 5, 1, 1, 0, 1, false);
   defineFan(1, 2, 1, false);
   defineHeater(1, -3, 1);
@@ -156,12 +161,8 @@ void loop() {
     selectProgram();
     //Définition de la température d'activation des sorties
     startRamping();
-    //Actualise la température
-    getTemperature();
-    //Protocoles spéciaux (pré-jour/pré-nuit)
+    //Protocoles spéciaux (pré-jour/pré-nuit) [VIDE]
     specialPrograms();
-    //Affichage LCD
-    lcdDisplay();
     //Activation des relais
     relayLogic();
     //Affichage LCD
@@ -193,7 +194,7 @@ void initOutputs(){
   for (int x = 0; x < sizeof(rollups);x++){
     rollups[x] = true;
     firstOpening[x] = true;
-    rollupSafety[x] = EEPROM.read(ROLLUPSAFETY+x);
+    rollupSafety[x] = rollupSafetyE(x);
     if (rollupSafety[x] == true) {
         attachInterrupt(digitalPinToInterrupt(SAFETY_SWITCH[0]), endOfTheRun0, FALLING);
         attachInterrupt(digitalPinToInterrupt(SAFETY_SWITCH[1]), endOfTheRun1, FALLING);
@@ -201,7 +202,7 @@ void initOutputs(){
   }
   for (int x = 0; x < sizeof(fans);x++){
     fans[x] = true;
-    fanSafety[x] = EEPROM.read(FANSAFETY+x);
+    fanSafety[x] = fanSafetyE(x);
   }
   for (int x = 0; x < sizeof(heaters);x++){
     heaters[x] = true;
@@ -209,7 +210,7 @@ void initOutputs(){
 }
 
 void endOfTheRun0(){
-  incrementCounter[0] = EEPROM.read(INCREMENTS);
+  incrementCounter[0] = incrementsE(0);
 }
 void endOfTheRun1(){
   byte x;
@@ -217,7 +218,7 @@ void endOfTheRun1(){
     case 1 : x = 0;
     case 2 : x = 1;
   }
-  incrementCounter[x] = EEPROM.read(INCREMENTS+x);
+  incrementCounter[x] = incrementsE(x);
 }
 
 void initVariables(){
@@ -228,7 +229,7 @@ void initVariables(){
   //Définition de la température cible
   setTempCible();
   //Définition de la température d'activation des sorties
-  getTemperature();
+  //getTemperature();
 }
 
 void getDateAndTime(){
@@ -245,17 +246,9 @@ void getDateAndTime(){
 void selectProgram(){
   //Définition des variables locales
   int P[nbPrograms][3];
-  byte sunRise[6];
-  byte sunSet[6];
-  int srmod[nbPrograms];
-  int ssmod[nbPrograms];
-  byte programType[nbPrograms];
+  byte sunRise[3];
+  byte sunSet[3];
 
-  for(byte x = 0; x < nbPrograms; x++){
-    programType[x] = EEPROM.read(PROGRAMS+x);
-    srmod[x] =  EEPROM.read(SRMOD+x)-60;
-    ssmod[x] =  EEPROM.read(SSMOD+x)-60;
-  }
   //Exécution du programme
   //Définit l'heure du lever et coucher du soleil
   myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
@@ -274,21 +267,21 @@ void selectProgram(){
   //Ajuste l'heure des programmes en fonction du lever et du coucher du soleil
   for(byte x = 0; x < nbPrograms; x++){
     //Serial.println(x);Serial.println (programType[x]);
-    if (programType[x] == SR){
+    if (programsE(x) == SR){
       P[x][HEURE] = sunRise[HEURE];
-      P[x][MINUTE] = sunRise[MINUTE] + srmod[x];
+      P[x][MINUTE] = sunRise[MINUTE] + srmodE(x);
       convertDecimalToTime(&P[x][HEURE], &P[x][MINUTE]);
       //Serial.print(" Program ");Serial.print(x);Serial.print(" : ");Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
     }
-    else if (programType[x] == CLOCK){
+    else if (programsE(x) == CLOCK){
       P[x][HEURE] = PROGRAM_TIME(x, HEURE);
       P[x][MINUTE] = PROGRAM_TIME(x, MINUTE);
       //Serial.print(" Program ");Serial.print(x);Serial.print(" : ");Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
     }
 
-    else if (programType[x] == SS){
+    else if (programsE(x) == SS){
       P[x][HEURE] = sunSet[HEURE];
-      P[x][MINUTE] = sunSet[MINUTE] + ssmod[x];
+      P[x][MINUTE] = sunSet[MINUTE] + ssmodE(x);
       convertDecimalToTime(&P[x][HEURE], &P[x][MINUTE]);
       //Serial.print(" Program ");Serial.print(x); Serial.print(" : "); Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
 
@@ -313,32 +306,36 @@ void selectProgram(){
 void setTempCible(){
   for (byte x = 0; x < nbPrograms; x++){
     if(program == x+1){
-      tempCible = EEPROM.read(TEMPCIBLE+x);
+      tempCible = targetTempE(x);
       //Serial.println(tempCible);
     }
   }
 }
 
-void getTemperature(){
+float greenhouseTemperature() {
+  float temp;
   #ifdef DS18B20
     sensors.requestTemperatures();
-    greenhouseTemperature = sensors.getTempCByIndex(0);
-
-    if((greenhouseTemperature < -20.00)||(greenhouseTemperature > 80)){
-      greenhouseTemperature = EEPROM.read(TEMPCIBLE+program-1)+2;
+    temp = sensors.getTempCByIndex(0);
+    if((temp < -20.00)||(temp > 80)){
+      temp = targetTempE(program-1)+2;
+      return temp;
       failedSensor = true;
     }
     else{
+      return temp;
       failedSensor = false;
     }
   #endif
   #ifdef SHT1X
-    greenhouseTemperature = sht1x.readTemperatureC();
-    if((greenhouseTemperature < -20.00)||(greenhouseTemperature > 80)){
-      greenhouseTemperature = EEPROM.read(TEMPCIBLE+program-1)+2;
+    temp = sht1x.readTemperatureC();
+    if((temp < -20.00)||(temp > 80)){
+      temp = targetTempE(program-1)+2;
+      return temp;
       failedSensor = true;
     }
     else{
+      return temp;
       failedSensor = false;
     }
   #endif
@@ -350,6 +347,7 @@ void lcdDisplay() {
   //Si passe du mode menu au mode controle...
   if (menuPinState == 0) {
     lcdPrintTemp();
+    lcdPrintTempCible();
     lcdPrintTime();
     lcdPrintRollups();
     lcdPrintOutputsStatus();
@@ -357,6 +355,7 @@ void lcdDisplay() {
   }
   //Séquence normale...
   lcdPrintTemp();
+  lcdPrintTempCible();
   lcdPrintTime();
   lcdPrintRollups();
   lcdPrintOutputsStatus();
@@ -371,17 +370,12 @@ void lcdDisplay() {
 //Programme de courbe de température
 void startRamping(){
   //Définition des variables locales
-  byte tempCibleE[nbPrograms];
-  unsigned int RAMPING_INTERVAL = EEPROM.read(RAMPING)*60*1000;
-  Serial.println((unsigned long)EEPROM.read(RAMPING)*60*1000);
-  for (byte x = 0; x < nbPrograms; x++){
-    tempCibleE[x] = EEPROM.read(TEMPCIBLE+x);
-  }
+  Serial.println(rampingE());
 
   //Exécution du programme
   for (byte x = 0; x < nbPrograms; x++){
     if(program == x+1){
-      newTempCible = tempCibleE[x];
+      newTempCible = targetTempE(x);
     }
   }
 
@@ -389,14 +383,14 @@ void startRamping(){
     unsigned long rampingCounter = millis();
     Serial.println(rampingCounter);
     Serial.println(rampingCounter - lastCount);
-    if(rampingCounter - lastCount > RAMPING_INTERVAL) {
+    if(rampingCounter - lastCount > rampingE()) {
       lastCount = rampingCounter;
       tempCible += 0.5;
     }
   }
   else if (newTempCible < tempCible){
     unsigned long rampingCounter = millis();
-    if(rampingCounter - lastCount > RAMPING_INTERVAL) {
+    if(rampingCounter - lastCount > rampingE()) {
       lastCount = rampingCounter;
       tempCible -= 0.5;
     }
@@ -411,22 +405,15 @@ void relayLogic(){                     //Température cible
   float tempRollup[sizeof(rollups)];         //Température d'activation des rollups (max.2)
   float tempHeater[sizeof(heaters)];         //Température d'activation des fournaises (max.2)
   float tempFan[sizeof(fans)];                //Température d'activation des fans (max.2)
-  //Définition des variables locales
-  byte hystRollups[sizeof(rollups)];
-  byte hystHeater[sizeof(heaters)];
-  byte hystFan[sizeof(fans)];
 
   for(byte x = 0; x < sizeof(rollups); x++){
-    tempRollup[x] = tempCible + EEPROM.read(RMOD+x) -10;
-    hystRollups[x] = EEPROM.read(RHYST+x);
+    tempRollup[x] = tempCible + rmodE(x);
   }
   for(byte x = 0; x < sizeof(heaters); x++){
-    tempHeater[x] = tempCible + EEPROM.read(HMOD+x)-10;
-    hystHeater[x] = EEPROM.read(HHYST+x);
+    tempHeater[x] = tempCible + hmodE(x);
   }
   for(byte x = 0; x < sizeof(rollups); x++){
-    tempFan[x] = tempCible + EEPROM.read(VMOD+x)-10;
-    hystFan[x] = EEPROM.read(VHYST+x);
+    tempFan[x] = tempCible + vmodE(x);
   }
 
   //Exécution du programme
@@ -434,9 +421,9 @@ void relayLogic(){                     //Température cible
   //Programme d'ouverture/fermeture des rollups
   for(byte x = 0; x < sizeof(rollups); x++){
     if (rollups[x] == true){
-      if (greenhouseTemperature < (tempRollup[x] - hystRollups[x])) {
+      if (greenhouseTemperature() < (tempRollup[x] - rhystE(x))) {
         closeSides(x);
-      } else if (greenhouseTemperature > tempRollup[x]) {
+      } else if (greenhouseTemperature() > tempRollup[x]) {
         openSides(x);
       }
     }
@@ -446,9 +433,9 @@ void relayLogic(){                     //Température cible
   for(byte x = 0; x < sizeof(heaters); x++){
     if (heaters[x] == true){
 
-      if ((greenhouseTemperature < tempHeater[x])&&(incrementCounter[0] == 0)) {
+      if ((greenhouseTemperature() < tempHeater[x])&&(incrementCounter[0] == 0)) {
         digitalWrite(CHAUFFAGE[x], ON);
-      } else if ((greenhouseTemperature > (tempHeater[x] + hystHeater[x]))||(incrementCounter[0] != 0)) {
+      } else if ((greenhouseTemperature() > (tempHeater[x] + hhystE(x)))||(incrementCounter[0] != 0)) {
         digitalWrite(CHAUFFAGE[x], OFF);
       }
     }
@@ -458,18 +445,18 @@ void relayLogic(){                     //Température cible
   for(byte x = 0; x < sizeof(fans); x++){
     if (fans[x] == true){
       if (fanSafety[x] == true){
-        if (greenhouseTemperature > tempFan[x]&&(digitalRead(SAFETY_SWITCH[0]) == OFF)){
+        if (greenhouseTemperature() > tempFan[x]&&(digitalRead(SAFETY_SWITCH[0]) == OFF)){
           digitalWrite(FAN[x], ON);
         }
-        else if ((greenhouseTemperature < (tempFan[x] - hystFan[x]))||(digitalRead(SAFETY_SWITCH[0]) == ON)) {
+        else if ((greenhouseTemperature() < (tempFan[x] - vhystE(x)))||(digitalRead(SAFETY_SWITCH[0]) == ON)) {
           digitalWrite(FAN[x], OFF);
         }
       }
       else if (fanSafety[x] == false){
-        if (greenhouseTemperature > tempFan[x]){
+        if (greenhouseTemperature() > tempFan[x]){
           digitalWrite(FAN[x], ON);
         }
-        else if (greenhouseTemperature < (tempFan[x] - hystFan[x])) {
+        else if (greenhouseTemperature() < (tempFan[x] - vhystE(x))) {
           digitalWrite(FAN[x], OFF);
         }
       }
@@ -481,23 +468,20 @@ void relayLogic(){                     //Température cible
 //****************    MACROS - AUTRES     **********************
 //**************************************************************
 
-
-
-
 //Programme d'ouverture des rollup
 void openSides(byte number) {
-  unsigned int pause = EEPROM.read(PAUSE+number) * 1000;
+  unsigned int pause = pauseE(number);
 
   if (firstOpening[number] == true){
     incrementCounter[number] = 0;
     firstOpening[number] = false;
   }
-  if (incrementCounter[number] < EEPROM.read(INCREMENTS)) {
+  if (incrementCounter[number] < incrementsE(number)) {
   incrementCounter[number] += 1;
     lcd.setCursor(0, 1);
     lcd.print(F("OUVERTURE"));
     digitalWrite(ROLLUP_OPEN[number], ON);
-    delay(EEPROM.read(ROTATION+number) * 1000);
+    delay(rotationE(number));
     digitalWrite(ROLLUP_OPEN[number], OFF);
     lcd.setCursor(0, 1);
     lcd.print(F("R-U:     "));
@@ -510,10 +494,10 @@ void openSides(byte number) {
 
 //Programme de fermeture des rollups
 void closeSides(byte number) {
-  unsigned int pause = EEPROM.read(PAUSE+number) * 1000;
+  unsigned int pause = pauseE(number);
 
   if (firstOpening[number] == true){
-    incrementCounter[number] = EEPROM.read(INCREMENTS+number);
+    incrementCounter[number] = incrementsE(number);
     firstOpening[number] = false;
   }
   if (incrementCounter[number] > 0) {
@@ -521,7 +505,7 @@ void closeSides(byte number) {
     lcd.setCursor(0, 1);
     lcd.print(F("FERMETURE"));
     digitalWrite(ROLLUP_CLOSE[number], ON);
-    delay(EEPROM.read(ROTATION+number) * 1000);
+    delay(rotationE(number));
     digitalWrite(ROLLUP_CLOSE[number], OFF);
     lcd.setCursor(0, 1);
     lcd.print(F("R-U:     "));
@@ -538,14 +522,16 @@ void lcdPrintRollups(){
     lcd.setCursor(5, 1); lcd.print(incrementCounter[0]);
  }
 void lcdPrintTemp(){
-    lcd.setCursor(0,0); lcd.print(F("                    "));
+    lcd.setCursor(0,0); lcd.print(F("         "));
     if(failedSensor == false){
-      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print(greenhouseTemperature); lcd.print(F("C |TC:"));
+      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print(greenhouseTemperature()); lcd.print(F("C"));
     }
     else{
-      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print("!!!"); lcd.print(F("("));lcd.print((int)greenhouseTemperature);lcd.print(F(")|TC:"));
+      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print("!!!"); lcd.print(F("("));lcd.print((int)greenhouseTemperature());lcd.print(F(")"));
     }
-    lcd.setCursor(13,0); lcd.print(tempCible); lcd.print(F("C"));
+}
+void lcdPrintTempCible(){
+    lcd.setCursor(9,0);lcd.print("|TC:");lcd.print(tempCible); lcd.print(F("C"));
 }
 void lcdPrintTime(){
     lcd.setCursor(9,1); lcd.print(F("|(P")); lcd.print(program); lcd.print(F(":"));
@@ -559,20 +545,20 @@ void lcdPrintOutputsStatus(){
 
   if (fans[0] == true){
       lcd.setCursor(0, 3); lcd.print(F("FAN:"));
-      if (digitalRead(FAN[0]) == OFF) {      lcd.setCursor(5, 3); lcd.print(F("OFF"));    }
-      else if (digitalRead(FAN[0]) == ON) {      lcd.setCursor(5, 3); lcd.print(F("ON "));    }
+      if (digitalRead(FAN[0]) == OFF) {lcd.setCursor(5, 3); lcd.print(F("OFF"));    }
+      else if (digitalRead(FAN[0]) == ON) {lcd.setCursor(5, 3); lcd.print(F("ON "));    }
     }
 
   if (heaters[0] == true){
     lcd.setCursor(0, 2); lcd.print(F("H1:"));
-    if (digitalRead(CHAUFFAGE[0]) == OFF) {      lcd.setCursor(5, 2); lcd.print(F("OFF |"));    }
-    else if (digitalRead(CHAUFFAGE[0]) == ON) {      lcd.setCursor(5, 2); lcd.print(F("ON  |"));    }
+    if (digitalRead(CHAUFFAGE[0]) == OFF) {lcd.setCursor(5, 2); lcd.print(F("OFF |"));    }
+    else if (digitalRead(CHAUFFAGE[0]) == ON) {lcd.setCursor(5, 2); lcd.print(F("ON  |"));    }
   }
 
   if (heaters[1] == true){
     lcd.setCursor(11, 2); lcd.print(F("H2:"));
-    if (digitalRead(CHAUFFAGE[1]) == OFF) {      lcd.setCursor(16, 2); lcd.print(F("OFF"));    }
-    else if (digitalRead(CHAUFFAGE[1]) == ON) {      lcd.setCursor(16, 2); lcd.print(F("ON "));    }
+    if (digitalRead(CHAUFFAGE[1]) == OFF) {lcd.setCursor(16, 2); lcd.print(F("OFF"));    }
+    else if (digitalRead(CHAUFFAGE[1]) == ON) {lcd.setCursor(16, 2); lcd.print(F("ON "));    }
   }
 }
 
@@ -646,7 +632,7 @@ void real_currentMenuItem(int x) {
   }
 }
 
-void Scrollingmenu (int x, const char a[20] PROGMEM, const char b[20] PROGMEM, const char c[20] PROGMEM, const char d[20] PROGMEM, const char e[20] PROGMEM, const char f[20] PROGMEM, const char g[20] PROGMEM, const char h[20] PROGMEM, const char i[20] PROGMEM, const char j[20] PROGMEM, int y) {
+void Scrollingmenu (const char t[6] PROGMEM, int x, const char a[20] PROGMEM, const char b[20] PROGMEM, const char c[20] PROGMEM, const char d[20] PROGMEM, const char e[20] PROGMEM, const char f[20] PROGMEM, const char g[20] PROGMEM, const char h[20] PROGMEM, const char i[20] PROGMEM, const char j[20] PROGMEM, int y) {
   const int numLcdRows = 3;
   byte scrollPos = 0;
   Nbitems = x;
@@ -658,6 +644,7 @@ void Scrollingmenu (int x, const char a[20] PROGMEM, const char b[20] PROGMEM, c
     scrollPos = 0;
   }
   clearPrintTitle();
+  lcd.setCursor(14,0);lcd.print(t);
   for (byte i = 0; i < numLcdRows; ++i) {
     lcd.setCursor(0, i + 1);
     lcd.print(menuitems[i + scrollPos]);
@@ -666,7 +653,7 @@ void Scrollingmenu (int x, const char a[20] PROGMEM, const char b[20] PROGMEM, c
   lcd.blink();
 }
 
-void Scrollingnumbers(int x, int y, int z, int a) {
+void Scrollingnumbers(const char t[6] PROGMEM,int x, int y, int z, int a) {
   const int numLcdRows = 3;
   int scrollPos = 0;
   Nbitems = x;
@@ -677,6 +664,7 @@ void Scrollingnumbers(int x, int y, int z, int a) {
     scrollPos = 0;
   }
   clearPrintTitle();
+  lcd.setCursor(14,0);lcd.print(t);
   for (byte i = 0; i < numLcdRows; ++i) {
     lcd.setCursor(0, i + 1);
     if (y < 4) {
@@ -705,45 +693,49 @@ void clearPrintTitle() {
 
 void displayMenu(int x) {
   switch (x) {
-    case 0: Scrollingmenu(6, "Capteurs", "Date/time", "Rollups", "Ventilation", "Chauffage", "Programmes", "", "", "", "", currentMenuItem); break;
-    case 1: Scrollingmenu(6, "Date", "Time", "SetDOW", "Set date", "Set time", "back", "", "", "", "", currentMenuItem); break;
+    case 0: Scrollingmenu("", 6, "Capteurs", "Date/time", "Rollups", "Ventilation", "Chauffage", "Programmes", "", "", "", "", currentMenuItem); break;
+    case 1: Scrollingmenu("TIME*", 6, "Date", "Time", "SetDOW", "Set date", "Set time", "back", "", "", "", "", currentMenuItem); break;
 
-    case 11: Scrollingmenu(8, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "back", "", "", currentMenuItem); break;
-    case 12: Scrollingnumbers(11, currentMenuItem, 2016, 1);  break;
-    case 121: Scrollingnumbers(13, currentMenuItem, 1 , 1);  break;
-    case 1211: Scrollingnumbers(32, currentMenuItem, 1, 1); break;
-    case 13: Scrollingnumbers(25, currentMenuItem, 1, 1); break;
-    case 131: Scrollingnumbers(62, currentMenuItem, 0 , 1); break;
-    case 1311: Scrollingnumbers(62, currentMenuItem, 0, 1); break;
+    case 11: Scrollingmenu("DOW**", 8, "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "back", "", "", currentMenuItem); break;
+    case 12: Scrollingnumbers("YEAR*",11, currentMenuItem, 2016, 1);  break;
+    case 121: Scrollingnumbers("MONTH", 13, currentMenuItem, 1 , 1);  break;
+    case 1211: Scrollingnumbers("DAY**", 32, currentMenuItem, 1, 1); break;
+    case 13: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
+    case 131: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
+    case 1311: Scrollingnumbers("SEC**",62, currentMenuItem, 0, 1); break;
 
-    case 2: Scrollingmenu(4, "Etat", "setProgram", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 21: Scrollingnumbers((sizeof(rollups)+1), currentMenuItem, 1, 1); break;
-    case 22: Scrollingnumbers((sizeof(rollups)+1), currentMenuItem, 1, 1); break;
+    case 2: Scrollingmenu("ROLL*", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 21: Scrollingmenu("ITEM*",(sizeof(rollups)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 22: Scrollingmenu("ITEM*",(sizeof(rollups)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 221: Scrollingnumbers("INCR*",11, currentMenuItem, 1, 1); break;
+    case 2211: Scrollingnumbers("ROTA*", 61, currentMenuItem, 2, 2); break;
+    case 22111: Scrollingmenu("PAUSE", 10, "5", "15", "20", "30", "45", "60", "75", "90", "120", "back", currentMenuItem); break;
+    case 221111: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 2211111: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 22111111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
 
-    case 23: Scrollingmenu(10, "5", "15", "20", "30", "45", "60", "75", "90", "120", "back", currentMenuItem); break;
+    case 3: Scrollingmenu("FANS*", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 31: Scrollingmenu("ITEM*",(sizeof(fans)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 32: Scrollingmenu("ITEM*",(sizeof(fans)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 321: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 3211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 32111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
 
-    case 3: Scrollingmenu(3, "Etat", "Set hysteresis", "back", "", "", "", "", "", "", "", currentMenuItem); break;
-    case 31: Scrollingnumbers(6, currentMenuItem, 1, 1); break;
-    case 4: Scrollingmenu(5, "(F1)Etat", "(F2)Etat", "(F1)Set hysteresis", "(F2)Set hysteresis", "back", "", "", "", "", "", currentMenuItem); break;
-    case 41: Scrollingnumbers(6, currentMenuItem, 1, 1); break;
-    case 42: Scrollingnumbers(6, currentMenuItem, 1, 1); break;
-    case 5: Scrollingmenu(10, "Programme 1", "Programme 2", "Programme 3", "Modificateurs", "Set Programme 1", "Set Programme 2", "Set Programme 3", "Set Modificateurs", "Set Ramping", "back", currentMenuItem); break;
-    case 51: Scrollingmenu(3, "Set Heure", "Set Temp. cible", "back", "", "", "", "", "", "", "", currentMenuItem); break;
-    case 511: Scrollingnumbers(121, currentMenuItem, -60, 1); break;
-    case 512: Scrollingnumbers(51, currentMenuItem, 0 , 1); break;
-    case 52: Scrollingmenu(3, "Set Heure", "Set Temp. cible", "back", "", "", "", "", "", "", "", currentMenuItem); break;
-    case 521: Scrollingnumbers(25, currentMenuItem, 1, 1); break;
-    case 5211: Scrollingnumbers(62, currentMenuItem, 0, 1); break;
-    case 522: Scrollingnumbers(51, currentMenuItem, 0, 1); break;
-    case 53: Scrollingmenu(3, "Set Heure", "Set Temp. cible", "back", "", "", "", "", "", "", "", currentMenuItem); break;
-    case 531: Scrollingnumbers(121, currentMenuItem, -60, 1); break;
-    case 532: Scrollingnumbers(51, currentMenuItem, 0, 1); break;
-    case 54: Scrollingmenu(5, "Mod. rollups", "Mod. ventilation", "Mod. fournaise1", "Mod. fournaise2", "back", "", "", "", "", "", currentMenuItem); break;
-    case 541: Scrollingnumbers(22, currentMenuItem, -10, 1); break;
-    case 542: Scrollingnumbers(22, currentMenuItem, -10, 1); break;
-    case 543: Scrollingnumbers(22, currentMenuItem, -10, 1); break;
-    case 544: Scrollingnumbers(22, currentMenuItem, -10, 1); break;
-    case 55: Scrollingnumbers(62, currentMenuItem, 0, 1); break;
+    case 4: Scrollingmenu("HEATR", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 41: Scrollingmenu("ITEM*",(sizeof(heaters)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 42: Scrollingmenu("ITEM*",(sizeof(heaters)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 421: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 4211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+
+    case 5: Scrollingmenu("PROG*", 3, "Timezones", "setTimezones", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 51: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
+    case 52: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
+    case 521: Scrollingmenu("ITEM*", 3,"SR", "MANUAL", "SS", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 5211: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
+    case 52111: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
+    case 5212: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
+    case 521111: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
+
   }
 }
 //------------------------SELECT-------------------
@@ -764,23 +756,15 @@ void selectMenu(int x, int y) {
     case 0:
       switch (y) {
         case 1:
-          float temperature;
-          #ifdef DS18B20
-            sensors.requestTemperatures();
-            temperature = sensors.getTempCByIndex(0);
-          #endif
-          #ifdef SHT1X
-              temperature = sht1x.readTemperatureC();
-          #endif
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("Sonde temp. : ")); lcd.print(temperature); lcd.print(F("C"));
+          lcd.setCursor(0, 1); lcd.print(F("Sonde temp. : ")); lcd.print(greenhouseTemperature()); lcd.print(F("C"));
           break;
         case 2: switchmenu(1); break;
         case 3: switchmenu(2); break;
         case 4: switchmenu(3); break;
         case 5: switchmenu(4); break;
-        case 6: switchmenu(0); break;
+        case 6: switchmenu(5); break;
       }
       break;
     //-------------------------------SelectMenu1-----------------------------------------
@@ -796,13 +780,7 @@ void selectMenu(int x, int y) {
         case 2:
           lcd.noBlink();
           clearPrintTitle();
-
-          t = rtc.getTime();
-          sunTime[HEURE] = t.hour;
-          sunTime[MINUTE] = t.min;
-          sunTime[0] = t.sec;
-          myLord.DST(sunTime);
-
+          getDateAndTime();
           lcd.setCursor(0, 1); lcd.print(F("Time : ")); lcdPrintDigits(sunTime[HEURE]);lcd.print(":"); lcdPrintDigits(sunTime[MINUTE]);lcd.print(":");lcdPrintDigits(sunTime[MINUTE]);
           break;
         case 3: switchmenu(11); break;
@@ -909,26 +887,25 @@ void selectMenu(int x, int y) {
           switchmenu(21); break;
         case 2:
           switchmenu(22); break;
-        case 3: switchmenu(23); break;
-        case 4: switchmenu(0); break;
+        case 3: switchmenu(0); break;
       }
       break;
     //-------------------------------SelectMenu21-----------------------------------------
-    //ETAT DES ROLLUPS
+    //PROGRAMMES DES ROLLUPS
     case 21 :
       if (y < Nbitems) {
         switch(y){
           case 1 :
           lcd.noBlink();
           clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("Increment: ")); lcd.print(incrementCounter[0]); lcd.print(F(""));
-          lcd.setCursor(0, 2); lcd.print(F("TP: ")); lcd.print(EEPROM.read(PAUSE)); lcd.print(F("s")); lcd.setCursor(8,2);lcd.print(F("| TR: ")); lcd.print(EEPROM.read(ROTATION)); lcd.print(F("s"));
-          lcd.setCursor(0, 3); lcd.print(F("H: ")); lcd.print(EEPROM.read(RHYST)); lcd.print(F("C")); lcd.setCursor(8,3);lcd.print(F("| TA: ")); lcd.print(tempCible + byteToNegative(EEPROM.read(RMOD), 10));lcd.print("C");
+          lcd.setCursor(0, 1); lcd.print(F("Increments: ")); lcd.print(incrementsE(0)); lcd.print(F(""));
+          lcd.setCursor(0, 2); lcd.print(F("TP: ")); lcd.print(pauseE(0)/1000); lcd.print(F("s")); lcd.setCursor(8,2);lcd.print(F("| TR: ")); lcd.print(rotationE(0)/1000); lcd.print(F("s"));
+          lcd.setCursor(0, 3); lcd.print(F("H: ")); lcd.print(rhystE(0)); lcd.print(F("C")); lcd.setCursor(8,3);lcd.print(F("| TA: ")); lcd.print(tempCible + rmodE(0));lcd.print("C");
           break;
           case 2 :
-          lcd.setCursor(0, 1); lcd.print(F("Increment: ")); lcd.print(incrementCounter[1]); lcd.print(F("%"));
-          lcd.setCursor(0, 2); lcd.print(F("TP: ")); lcd.print(EEPROM.read(PAUSE+1)); lcd.print(F("s")); lcd.setCursor(8,2);lcd.print(F("| TR:")); lcd.print(EEPROM.read(ROTATION+1)); lcd.print(F("s"));
-          lcd.setCursor(0, 3); lcd.print(F("H: ")); lcd.print(EEPROM.read(RHYST+1)); lcd.print(F("C")); lcd.setCursor(8,3);lcd.print(F("| TA: ")); lcd.print(tempCible - byteToNegative(EEPROM.read(RMOD+1), 10));lcd.print("C");
+          lcd.setCursor(0, 1); lcd.print(F("Increment: ")); lcd.print(incrementsE(1)); lcd.print(F("%"));
+          lcd.setCursor(0, 2); lcd.print(F("TP: ")); lcd.print(pauseE(1)/1000); lcd.print(F("s")); lcd.setCursor(8,2);lcd.print(F("| TR:")); lcd.print(rotationE(1)/1000); lcd.print(F("s"));
+          lcd.setCursor(0, 3); lcd.print(F("H: ")); lcd.print(rhystE(1)); lcd.print(F("C")); lcd.setCursor(8,3);lcd.print(F("| TA: ")); lcd.print(tempCible - rmodE(1));lcd.print("C");
           break;
         }
       }
@@ -937,340 +914,398 @@ void selectMenu(int x, int y) {
       }
       break;
     //-------------------------------SelectMenu22-----------------------------------------
-    //SET ROTATION TIME
+    //SET ROLLUP PROGRAM
     case 22 :
       if (y < Nbitems) {
-        //rotation = y;
-        EEPROM.update(ROTATION, y);
-        switchmenu(2);
+        nr = y;
+        switchmenu(221);
       }
       else {
         switchmenu(2);
       }
       break;
-    //-------------------------------SelectMenu23-----------------------------------------
-    //"5", "15", "20", "30", "45", "60", "75", "90", "120", "back"
-    case 23 :
-      int pause;
-      switch (y) {
-        case 1: pause = 5; switchmenu(2); EEPROM.write(PAUSE, pause);break;
-        case 2: pause = 15; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 3: pause = 20; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 4: pause = 30; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 5: pause = 45; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 6: pause = 60; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 7: pause = 75; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 8: pause = 90; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 9: pause = 120; switchmenu(2); EEPROM.write(PAUSE, pause); break;
-        case 10: switchmenu(2); break;
+    //-------------------------------SelectMenu221-----------------------------------------
+    //SET INCREMENTS
+    case 221 :
+      if (y < Nbitems) {
+        inc = y;
+        switchmenu(2211);
+      }
+      else {
+        switchmenu(2);
       }
       break;
-
-    //-------------------------------SelectMenu3-----------------------------------------
-    case 3 :
-      switch (y) {
-        case 1:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("FAN : "));
-          if (digitalRead(FAN[0]) == OFF) {
-            lcd.print(F("OFF"));
-          }
-          else {
-            lcd.print(F("ON"));
-          }
-          lcd.setCursor(0, 2); lcd.print(F("Temp. cible : ")); lcd.print(tempCible+EEPROM.read(VMOD)-10); lcd.print(F("C"));
-          lcd.setCursor(0, 3); lcd.print(F("Hysteresis : ")); lcd.print(EEPROM.read(VHYST)); lcd.print(F("C"));
-          break;
-        case 2: switchmenu(31); break;
-        case 3: switchmenu(0); break;
+    //-------------------------------SelectMenu2211-----------------------------------------
+    //SET ROTATION TIME
+    case 2211 :
+      if (y < Nbitems) {
+        rot = y*2;
+        switchmenu(22111);
       }
+      else {
+        switchmenu(2);
+      }
+      break;
+      //-------------------------------SelectMenu22111-----------------------------------------
+      //SET PAUSE TIME
+      case 22111 :
+        switch (y) {
+          case 1: p = 5; switchmenu(221111);break;
+          case 2: p = 15; switchmenu(221111); break;
+          case 3: p = 20; switchmenu(221111); break;
+          case 4: p = 30; switchmenu(221111); break;
+          case 5: p = 45; switchmenu(221111); break;
+          case 6: p = 60; switchmenu(221111); break;
+          case 7: p = 75; switchmenu(221111); break;
+          case 8: p = 90; switchmenu(221111); break;
+          case 9: p = 120; switchmenu(221111); break;
+          case 10: switchmenu(2); break;
+          }
+        break;
+      //-------------------------------SelectMenu221111-----------------------------------------
+      //SET MODIFICATOR
+      case 221111 :
+        if (y < Nbitems) {
+          mod = y-11;
+          switchmenu(2211111);
+        }
+        else {
+          switchmenu(2);
+        }
+      break;
+      //-------------------------------SelectMenu221111-----------------------------------------
+      //SET HYSTERESIS
+      case 2211111 :
+        if (y < Nbitems) {
+          hys = y;
+          switchmenu(22111111);
+        }
+        else {
+          switchmenu(2);
+        }
+      break;
+      //-------------------------------SelectMenu221111-----------------------------------------
+      //SET SAFETY AND UPDATE EEPROM
+      case 22111111 :
+        switch (y){
+          case 1: sfty = true;defineRollup(nr,inc,rot,p,mod,hys,sfty); switchmenu(2);break;
+          case 2: sfty = false;defineRollup(nr,inc,rot,p,mod,hys,sfty); switchmenu(2);break;
+          case 3: switchmenu(2);break;
+        }
       break;
     //-------------------------------SelectMenu31-----------------------------------------
-    //SET HYSTERESIS
+  /*  case 3: Scrollingmenu("FANS*", 3, "Program", "setProgram", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 31: Scrollingnumbers("#****",(sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 32: Scrollingnumbers("#****", (sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 321: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 3211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 32111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+*/
+
+//-------------------------------SelectMenu3-----------------------------------------
+//État, setProgram
+case 3 :
+  switch (y) {
+    case 1:
+      switchmenu(31); break;
+    case 2:
+      if (sizeof(rollups) == 2){switchmenu(32);}
+      else{switchmenu(0);}
+      break;
+    case 3: switchmenu(0); break;
+  }
+break;
+
+//-------------------------------SelectMenu31-----------------------------------------
+    //PROGRAMME DES FANS
     case 31 :
       if (y < Nbitems) {
-        switchmenu(3);
-        EEPROM.write(1, y);
+        switch(y){
+          case 1 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1); lcd.print(F("TA: ")); lcd.print(tempCible + vmodE(0)); lcd.print("C");
+          lcd.setCursor(0, 2); lcd.print(F("H: ")); lcd.print(rhystE(0)); lcd.print(F("C"));
+          lcd.setCursor(0, 3); lcd.print(F("SAFETY: ")); if(fanSafetyE(0)== true){lcd.print(F("Activated"));}else{lcd.print(F("Deactivated"));}
+          break;
+          case 2 :
+          lcd.setCursor(0, 1); lcd.print(F("TA: ")); lcd.print(tempCible + vmodE(1)); lcd.print("C");
+          lcd.setCursor(0, 2); lcd.print(F("H: ")); lcd.print(rhystE(1)); lcd.print(F("C"));
+          lcd.setCursor(0, 3); lcd.print(F("SAFETY: ")); if(fanSafetyE(1)== true){lcd.print(F("Activated"));}else{lcd.print(F("Deactivated"));}
+          break;
+        }
       }
       else {
         switchmenu(3);
       }
       break;
-    //-------------------------------SelectMenu4-----------------------------------------
-    case 4 :
-      switch (y) {
-        case 1:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("FOURNAISE(1) : "));
-          if (digitalRead(CHAUFFAGE[0]) == OFF) {
-            lcd.print(F("OFF"));
-          }
-          else {
-            lcd.print(F("ON"));
-          }
-          lcd.setCursor(0, 2); lcd.print(F("Temp. cible : ")); lcd.print(tempCible+EEPROM.read(HMOD)-10); lcd.print(F("C"));
-          lcd.setCursor(0, 3); lcd.print(F("Hysteresis : ")); lcd.print(EEPROM.read(HHYST)); lcd.print(F("C"));
-          break;
-        case 2:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("FOURNAISE(2) : "));
-          if (digitalRead(CHAUFFAGE[1]) == OFF) {
-            lcd.print(F("OFF"));
-          }
-          else {
-            lcd.print(F("ON"));
-          }
-          lcd.setCursor(0, 2); lcd.print(F("Temp. cible : ")); lcd.print(tempCible+EEPROM.read(HMOD+1)-10); lcd.print(F("C"));
-          lcd.setCursor(0, 3); lcd.print(F("Hysteresis : ")); lcd.print(EEPROM.read(HHYST+1)); lcd.print(F("C"));
-          break;
-        case 3: switchmenu(41); break;
-        case 4: switchmenu(42); break;
-        case 5: switchmenu(0); break;
+    //-------------------------------SelectMenu32-----------------------------------------
+    //SET FAN PROGRAM
+    case 32 :
+      if (y < Nbitems) {
+        nr = y;
+        switchmenu(321);
+      }
+      else {
+        switchmenu(3);
       }
       break;
-    //-------------------------------SelectMenu41-----------------------------------------
+    //-------------------------------SelectMenu321-----------------------------------------
+    //SET MOD
+    case 321 :
+      if (y < Nbitems) {
+        mod = y-11;
+        switchmenu(3211);
+      }
+      else {
+        switchmenu(2);
+      }
+      break;
+    //-------------------------------SelectMenu3211-----------------------------------------
     //SET HYSTERESIS
+    case 3211 :
+      if (y < Nbitems) {
+        hys = y;
+        switchmenu(32111);
+      }
+      else {
+        switchmenu(2);
+      }
+      break;
+      //-------------------------------SelectMenu321111-----------------------------------------
+      //SET SAFETY AND UPDATE EEPROM
+      case 32111 :
+        switch (y){
+          case 1: sfty = true;defineFan(nr,mod,hys,sfty); switchmenu(3);break;
+          case 2: sfty = false;defineFan(nr,mod,hys,sfty); switchmenu(3);break;
+          case 3: switchmenu(3);break;
+        }
+      break;
+
+/*  case 4: Scrollingmenu("HEATR", 3, "Program", "setProgram", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 41: Scrollingnumbers("ITEM*",(sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 42: Scrollingnumbers("ITEM*", (sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 421: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 4211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+*/
+
+//-------------------------------SelectMenu4-----------------------------------------
+//État, setProgram
+case 4 :
+  switch (y) {
+    case 1:
+      switchmenu(41); break;
+    case 2:
+      if (sizeof(fans) == 2){switchmenu(42);}
+      else{switchmenu(0);}
+      break;
+    case 3: switchmenu(0); break;
+  }
+break;
+
+//-------------------------------SelectMenu41-----------------------------------------
+    //PROGRAMME DES CHAUFFERETTES
     case 41 :
       if (y < Nbitems) {
-        switchmenu(4);
-        EEPROM.update(HHYST, y);
+        switch(y){
+          case 1 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1); lcd.print(F("TA: ")); lcd.print(tempCible + hmodE(0)); lcd.print("C");
+          lcd.setCursor(0, 2); lcd.print(F("H: ")); lcd.print(hhystE(0)); lcd.print(F("C"));
+          break;
+          case 2 :
+          lcd.setCursor(0, 1); lcd.print(F("TA: ")); lcd.print(tempCible + hmodE(1)); lcd.print("C");
+          lcd.setCursor(0, 2); lcd.print(F("H: ")); lcd.print(hhystE(1)); lcd.print(F("C"));
+          break;
+        }
       }
       else {
         switchmenu(4);
       }
       break;
     //-------------------------------SelectMenu42-----------------------------------------
-    //SET HYSTERESIS
+    //SET CHAUFFERETTES PROGRAM
     case 42 :
       if (y < Nbitems) {
-        switchmenu(4);
-        EEPROM.write(HHYST+1, y);
+        nr = y;
+        switchmenu(421);
       }
       else {
         switchmenu(4);
       }
       break;
-    //-------------------------------SelectMenu5-----------------------------------------
-    //"Programme 1", "Programme 2", "Programme 3", "Modificateurs" "Set Programme 1", "Set Programme 2", "Set Programme 3", "Set Modificateurs", "back"
-    case 5 :/*
-      switch (y) {
-        case 1:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P[0][HEURE]); lcd.print(F(":")); lcd.print(P[0][MINUTE]); lcd.print(F(" | HF: ")); lcd.print(P[1][HEURE]); lcd.print(F(":")); lcd.print(P[1][MINUTE]);
-          //lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(tempCibleE[0]); lcd.print(F("C"));
-          //lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(ramping); lcd.print(F(" min"));
-          break;
-        case 2:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P[1][HEURE]); lcd.print(F(":")); lcd.print(P[1][MINUTE]); lcd.print(F(" | HF: ")); lcd.print(P[2][HEURE]); lcd.print(F(":")); lcd.print(P[2][HEURE]);
-          //lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(tempCibleE[1]); lcd.print(F("C"));
-          //lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(RAMPING); lcd.print(F(" min"));
-          break;
-        case 3:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("HD: ")); lcd.print(P[2][HEURE]); lcd.print(F(":")); lcd.print(P[2][HEURE]); lcd.print(F(" | HF: ")); lcd.print(P[0][HEURE]); lcd.print(F(":")); lcd.print(P[0][MINUTE]);
-          //lcd.setCursor(0, 2); lcd.print(F("TEMP.CIBLE : ")); lcd.print(tempCibleE[2]); lcd.print(F("C"));
-          //lcd.setCursor(0,3); lcd.print(F("RAMPING : "));  lcd.print(RAMPING); lcd.print(F(" min"));
-          break;
-        case 4:
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1); lcd.print(F("TEMP.CIBLE : ")); lcd.print(tempCible);
-          lcd.setCursor(0, 2); lcd.print(F("RMod:")); lcd.print(EEPROM.read(RMOD)-11);
-          lcd.setCursor(8, 2); lcd.print(F("| HMOD[0]:")); lcd.print(EEPROM.read(HMOD)-11);
-          lcd.setCursor(0, 3); lcd.print(F("VMOD[0]:")); lcd.print(EEPROM.read(VMOD)-11);
-          lcd.setCursor(8, 3); lcd.print(F("| HMOD[1]:")); lcd.print(EEPROM.read(HMOD+1)-11);
-          break;
-        case 5: switchmenu(51); break;
-        case 6: switchmenu(52); break;
-        case 7: switchmenu(53); break;
-        case 8: switchmenu(54); break;
-        case 9: switchmenu(55); break;
-        case 10: switchmenu(0); break;
-      }*/
-      break;
-    //-------------------------------SelectMenu51-----------------------------------------
-    case 51:
-      switch (y) {
-        case 1: switchmenu(511);break;
-        case 2: switchmenu(512); break;
-        case 3: switchmenu(5); break;
-      }
-      break;
-    //-------------------------------SelectMenu511-----------------------------------------
-    //SET MINUTES PAST/BEFORE SUNRISE
-    case 511 :
+    //-------------------------------SelectMenu421-----------------------------------------
+    //SET MOD
+    case 421 :
       if (y < Nbitems) {
-        EEPROM.write(SSMOD, y);
-        switchmenu(51);
+        mod = y-11;
+        switchmenu(4211);
       }
       else {
-        switchmenu(51);
+        switchmenu(4);
       }
       break;
-    //-------------------------------SelectMenu512-----------------------------------------
-    //SET tempCible
-    case 512 :
+    //-------------------------------SelectMenu4211-----------------------------------------
+    //SET HYSTERESIS
+    case 4211 :
       if (y < Nbitems) {
-        //tempCibleE[0] = y-1;
-        switchmenu(51);
-        //EEPROM.write(TEMP_CIBLEE, y-1);
+        hys = y;
+        defineHeater(nr,mod,hys);
+        switchmenu(4);
       }
       else {
-        switchmenu(51);
+        switchmenu(4);
       }
+      break;
+      /*
+      case 5: Scrollingmenu("PROG*", 3, "Timezones", "setTimezones", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+      case 51: Scrollingnumbers("TIMZ*",(sizeof(nbPrograms)+1),currentMenuItem, 1, 1);break;
+      case 52: Scrollingnumbers("TIMZ*",(sizeof(nbPrograms)+1),currentMenuItem, 1, 1);break;
+      case 521: Scrollingmenu("ITEM*", 3,"SR", "MANUAL", "SS", "", "", "", "",  "", "", "", currentMenuItem);break;
+      case 5211: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
+      case 52111: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
+      case 5212: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
+      case 521111: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
+*/
+      //-------------------------------SelectMenu5-----------------------------------------
+      //État, setProgram
+      case 5 :
+        switch (y) {
+          case 1:
+            switchmenu(51); break;
+          case 2:
+            if (sizeof(nbPrograms) >= 2){switchmenu(52);}
+            else{switchmenu(0);}
+            break;
+          case 3:
+            if (sizeof(nbPrograms) >= 3){switchmenu(52);}
+            else{switchmenu(0);}
+            break;
+          case 4:
+            if (sizeof(nbPrograms) >= 4){switchmenu(52);}
+            else{switchmenu(0);}
+            break;
+          case 5:
+            if (sizeof(nbPrograms) >= 5){switchmenu(52);}
+            else{switchmenu(0);}
+            break;
+          case 6: switchmenu(0); break;
+        }
+      break;
+
+      //-------------------------------SelectMenu41-----------------------------------------
+    //PROGRAMME DES TIMEZONES
+    case 51 :
+        switch(y){
+          case 1 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1);
+          lcd.setCursor(0, 2);
+          break;
+          case 2 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1);
+          lcd.setCursor(0, 2);
+          case 3 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1);
+          lcd.setCursor(0, 2);
+          case 4 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1);
+          lcd.setCursor(0, 2);
+          case 5 :
+          lcd.noBlink();
+          clearPrintTitle();
+          lcd.setCursor(0, 1);
+          lcd.setCursor(0, 2);
+          break;
+          case 6 :
+          switchmenu(5);
+          break;
+        }
       break;
     //-------------------------------SelectMenu52-----------------------------------------
-    case 52:
-      switch (y) {
-        case 1: switchmenu(521);break;
-        case 2: switchmenu(522); break;
-        case 3: switchmenu(5); break;
+    //SET TIMEZONES PROGRAM
+    case 52 :
+      if (y < Nbitems) {
+        nr = y;
+        switchmenu(521);
+      }
+      else {
+        switchmenu(5);
       }
       break;
     //-------------------------------SelectMenu521-----------------------------------------
-    //SET HOUR
+    //SET TYPE
     case 521 :
-      if (y < Nbitems) {
-        //P[1][HEURE] = y;
-        switchmenu(5211);
-        //EEPROM.write(7, P[1][HEURE]);
-      }
-      else {
-        switchmenu(52);
+      switch(y){
+        case 1:typ = SR;switchmenu(5212);break;
+        case 2:typ = CLOCK;switchmenu(5211);break;
+        case 3:typ = SS;switchmenu(5212);break;
+        case 4:switchmenu(5);break;
       }
       break;
     //-------------------------------SelectMenu5211-----------------------------------------
-    //SET MINUTES
+    //SET HOUR
     case 5211 :
-      if (y < Nbitems) {
-        //P[1][MINUTE] = (y - 1);
-        switchmenu(52);
-        //EEPROM.write(8, P[1][MINUTE]);
+      t = rtc.getTime();
+      sunTime[HEURE] = t.hour;
+      myLord.DST(sunTime);
+        if ((t.hour != sunTime[HEURE]) && (y < Nbitems)) {
+        hr = y-1;
+        switchmenu(52111);
       }
-      else {
-        switchmenu(52);
+      else if ((t.hour == sunTime[HEURE]) && (y < Nbitems)) {
+        hr = y;
+        switchmenu(52111);
       }
-      break;
-    //-------------------------------SelectMenu522-----------------------------------------
-    //SET tempCible
-    case 522 :
-      if (y < Nbitems) {
-        //tempCibleE[1] = y-1;
-        switchmenu(52);
-        //EEPROM.write(9, tempCibleE[1]);
-      }
-      else {
-        switchmenu(52);
-      }
-      break;
-    //-------------------------------SelectMenu53-----------------------------------------
-    //"Heure", "Tempcible", "back"
-    case 53:
-      switch (y) {
-        case 1: switchmenu(531); break;
-        case 2: switchmenu(532); break;
-        case 3: switchmenu(5); break;
-      }
-      break;
-    //-------------------------------SelectMenu531-----------------------------------------
-    //SET MINUTES PAST/BEFORE SUNSET
-    case 531 :
-      if (y < Nbitems) {
-        //SSMOD[0] = y;
-        //EEPROM.write(10, SSMOD[0]);
-        switchmenu(53);
-      }
-      else {
-        switchmenu(53);
-      }
-      break;
-    //-------------------------------SelectMenu532-----------------------------------------
-    //SET tempCible
-    case 532 :
-      if (y < Nbitems) {
-        //tempCibleE[2] = y-1;
-        switchmenu(53);
-        //EEPROM.write(12, tempCibleE[2]);
-      }
-      else {
-        switchmenu(53);
-      }
-      break;
-    //-------------------------------SelectMenu54-----------------------------------------
-    //
-    case 54:
-      switch (y) {
-        case 1: switchmenu(541); break;
-        case 2: switchmenu(542); break;
-        case 3: switchmenu(543); break;
-        case 4: switchmenu(544); break;
-        case 5: switchmenu(5); break;
-      }
-      break;
-    //-------------------------------SelectMenu541-----------------------------------------
-    //SET MOD
-    case 541 :
-      if (y < Nbitems) {
-        //tempRollup = tempCible + y -11;
-        switchmenu(54);
-        EEPROM.write(15, y);
-      }
-      else {
-        switchmenu(54);
-      }
-      break;
-    //-------------------------------SelectMenu541-----------------------------------------
-    //SET MOD
-    case 542 :
-      if (y < Nbitems) {
-        switchmenu(54);
-        EEPROM.write(16, y);
-      }
-      else {
-        switchmenu(54);
-      }
-      break;
-    //-------------------------------SelectMenu541-----------------------------------------
-    //SET MOD
-    case 543 :
-      if (y < Nbitems) {
-        switchmenu(54);
-        EEPROM.write(17, y);
-      }
-      else {
-        switchmenu(54);
-      }
-      break;
-    //-------------------------------SelectMenu541-----------------------------------------
-    //SET MOD
-    case 544 :
-      if (y < Nbitems) {
-        switchmenu(54);
-        EEPROM.write(18, y);
-      }
-      else {
-        switchmenu(54);
-      }
-      break;//-------------------------------SelectMenu541-----------------------------------------
-    //SET ramping interval
-    case 55:/*
-    if (y < Nbitems) {
-        RAMPING = y-1;
-        EEPROM.read(RAMPING)*60*1000 = ((unsigned long)y-1)*60*1000;
-        EEPROM.write(19, RAMPING);
+      else{
         switchmenu(5);
+      }
+      break;
+    //-------------------------------SelectMenu52111-----------------------------------------
+    //SET MINUTES
+    case 52111 :
+      if (y < Nbitems) {
+        mn = y - 1;
+        switchmenu(1311);
       }
       else {
         switchmenu(5);
-      }*/
+      }
       break;
+    //-------------------------------SelectMenu5212-----------------------------------------
+    //SET MOD
+    case 5212 :
+      if (y < Nbitems) {
+        mod = y-60;
+        switchmenu(52111);
+      }
+      else {
+        switchmenu(5);
+      }
+    break;
+    //-------------------------------SelectMenu521111-----------------------------------------
+    //SET TEMP CIBLE AND UPDATE EEPROM
+    case 521111 :
+      if (y < Nbitems) {
+        tt = y-1;
+        if (typ == CLOCK){
+          defineProgram(nr,typ,hr,mn,tt);
+        }
+        else{
+          defineProgram(nr,typ,0,mod,tt);
+        }
+      }
+      else {
+        switchmenu(5);
+      }
+      break;
+    }
   }
-
-}
