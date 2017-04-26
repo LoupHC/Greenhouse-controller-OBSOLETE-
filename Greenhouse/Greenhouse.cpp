@@ -67,9 +67,58 @@ void initHeaterOutput(byte number, byte heaterPin, boolean state){
     pinMode(heaterPin, OUTPUT);
     digitalWrite(heaterPin, state);
 }
+//**************************************************************
+//**********       MACROS - AFFICHAGE     ****************
+//**************************************************************
 
-
-
+int programsE(byte index){
+  return EEPROM.read(PROGRAMS+index);
+}
+int srmodE(byte index){
+  return (int)EEPROM.read(SRMOD+index)-60;
+}
+int ssmodE(byte index){
+  return (int)EEPROM.read(SSMOD+index)-60;
+}
+int targetTempE(byte index){
+  return EEPROM.read(TEMPCIBLE+index);
+}
+unsigned long rampingE(){
+  return (unsigned long)EEPROM.read(RAMPING)*60*1000;
+}
+int rmodE(byte index){
+  return (int)EEPROM.read(RMOD+index) -10;
+}
+int vmodE(byte index){
+  return (int)EEPROM.read(VMOD+index) -10;
+}
+int hmodE(byte index){
+  return (int)EEPROM.read(HMOD+index) -10;
+}
+int rhystE(byte index){
+  return (int)EEPROM.read(RHYST+index);
+}
+int vhystE(byte index){
+  return (int)EEPROM.read(VHYST+index);
+}
+int hhystE(byte index){
+  return (int)EEPROM.read(HHYST+index);
+}
+unsigned int pauseE(byte index){
+  return EEPROM.read(PAUSE+index) * 1000;
+}
+unsigned int rotationE(byte index){
+  return EEPROM.read(ROTATION+index) * 1000;
+}
+int incrementsE(byte index){
+  return EEPROM.read(INCREMENTS+index);
+}
+boolean rollupSafetyE(byte index){
+  return EEPROM.read(ROLLUPSAFETY+index);
+}
+boolean fanSafetyE(byte index){
+  return EEPROM.read(FANSAFETY+index);
+}
 //**************************************************************
 //**********       MACROS - OUTILS      ****************
 //**************************************************************
