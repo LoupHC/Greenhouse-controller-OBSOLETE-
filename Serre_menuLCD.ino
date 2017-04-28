@@ -1274,7 +1274,7 @@ break;
     case 52111 :
       if (y < Nbitems) {
         mn = y - 1;
-        switchmenu(1311);
+        switchmenu(521111);
       }
       else {
         switchmenu(5);
@@ -1285,7 +1285,7 @@ break;
     case 5212 :
       if (y < Nbitems) {
         mod = y-60;
-        switchmenu(52111);
+        switchmenu(521111);
       }
       else {
         switchmenu(5);
