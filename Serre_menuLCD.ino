@@ -3,6 +3,7 @@
 //*****************LIBRAIRIES************************
 #include <EEPROM.h>
 #include <Wire.h>
+#include <LCD.h>
 #include <LiquidCrystal_I2C.h>
 #include <DS3231.h>
 #include <TimeLord.h>
@@ -96,7 +97,7 @@ char* menuitems[10];
 int yr; byte mt; byte dy; byte hr; byte mn; byte sc;
 byte nr; byte inc; unsigned int rot; unsigned int p; int mod; byte hys; boolean sfty;
 byte typ; byte tt;
-byte timeWithoutDST;
+
 
 //**************************************************************
 //*****************       SETUP      ***************************
@@ -112,17 +113,17 @@ void setup() {
   initLCD(20,4);
   initTimeLord();
 
-  //defineProgram(1, SR, 0, -30, 20);
-  //defineProgram(2, SR, 0, 20, 21);
-  //defineProgram(3, CLOCK, 11, 10, 22);
-  //defineProgram(4, SS, 0, -60, 28);
-  //defineProgram(5, SS, 0, -2, 18);
+  defineProgram(1, SR, 0, -30, 20);
+  defineProgram(2, SR, 0, 20, 21);
+  defineProgram(3, CLOCK, 11, 10, 22);
+  defineProgram(4, SS, 0, -60, 28);
+  defineProgram(5, SS, 0, -2, 18);
 
-  //defineRollup(1, 5, 1, 1, 0, 1, false);
-  //defineFan(1, 2, 1, false);
-  //defineHeater(1, -3, 1);
-  //defineHeater(2, -5, 1);
-  //defineRamping(5);
+  defineRollup(1, 5, 1, 1, 0, 1, false);
+  defineFan(1, 2, 1, false);
+  defineHeater(1, -3, 1);
+  defineHeater(2, -5, 1);
+  defineRamping(5);
 
   initVariables();
   initOutputs();
@@ -162,10 +163,10 @@ void loop() {
     startRamping();
     //Protocoles spéciaux (pré-jour/pré-nuit) [VIDE]
     specialPrograms();
-    //Affichage LCD
-    lcdDisplay();
     //Activation des relais
     relayLogic();
+    //Affichage LCD
+    lcdDisplay();
     //Pause entre chaque cycle
     delay(sleeptime);
   }
@@ -254,18 +255,18 @@ void selectProgram(){
   myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
   sunRise[HEURE] = sunTime[HEURE];
   sunRise[MINUTE] = sunTime[MINUTE];
-  Serial.print("lever du soleil :");Serial.print(sunRise[HEURE]);  Serial.print(":");  Serial.println(sunRise[MINUTE]);
+  //Serial.print("lever du soleil :");Serial.print(sunRise[HEURE]);  Serial.print(":");  Serial.println(sunRise[MINUTE]);
 
   /* Sunset: */
   myLord.SunSet(sunTime); // Computes Sun Set. Prints:
   myLord.DST(sunTime);
   sunSet[HEURE] = sunTime[HEURE];
   sunSet[MINUTE] = sunTime[MINUTE];
-  Serial.print("coucher du soleil :");  Serial.print(sunSet[HEURE]);  Serial.print(":");  Serial.println(sunSet[MINUTE]);
+  //Serial.print("coucher du soleil :");  Serial.print(sunSet[HEURE]);  Serial.print(":");  Serial.println(sunSet[MINUTE]);
   getDateAndTime();
   //Ajuste l'heure des programmes en fonction du lever et du coucher du soleil
   for(byte x = 0; x < nbPrograms; x++){
-    Serial.println (programsE(x));
+    //Serial.println(x);Serial.println (programType[x]);
     if (programsE(x) == SR){
       P[x][HEURE] = sunRise[HEURE];
       P[x][MINUTE] = sunRise[MINUTE] + srmodE(x);
@@ -283,25 +284,24 @@ void selectProgram(){
       P[x][MINUTE] = sunSet[MINUTE] + ssmodE(x);
       convertDecimalToTime(&P[x][HEURE], &P[x][MINUTE]);
       //Serial.print(" Program ");Serial.print(x); Serial.print(" : "); Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
-    }
-  }
+
     //Sélectionne le programme en cour
     //Serial.print ("Heure actuelle ");Serial.print(" : ");Serial.print(sunTime[HEURE] );Serial.print(" : ");Serial.println(sunTime[MINUTE]);
     for (byte y = 0; y < (nbPrograms-1); y++){
-    Serial.print ("Programme "); Serial.print(y+1);Serial.print(" : ");Serial.print(P[y][HEURE]);Serial.print(" : ");Serial.println(P[y][MINUTE]);
+    //Serial.print ("Programme "); Serial.print(y+1);Serial.print(" : ");Serial.print(P[y][HEURE]);Serial.print(" : ");Serial.println(P[y][MINUTE]);
       if (((sunTime[HEURE] == P[y][HEURE])  && (sunTime[MINUTE] >= P[y][MINUTE]))||((sunTime[HEURE] > P[y][HEURE]) && (sunTime[HEURE] < P[y+1][HEURE]))||((sunTime[HEURE] == P[y+1][HEURE])  && (sunTime[MINUTE] < P[y+1][MINUTE]))){
           program = y+1;
-          Serial.println("YES!");
+          //Serial.println("YES!");
         }
       }
-        Serial.print ("Programme ");Serial.print(nbPrograms);Serial.print(" : ");Serial.print(P[nbPrograms-1][HEURE]);Serial.print(" : ");Serial.println(P[nbPrograms-1][MINUTE]);
+      //  Serial.print ("Programme ");Serial.print(nbPrograms);Serial.print(" : ");Serial.print(P[nbPrograms-1][HEURE]);Serial.print(" : ");Serial.println(P[nbPrograms-1][MINUTE]);
       if (((sunTime[HEURE] == P[nbPrograms-1][HEURE])  && (sunTime[MINUTE] >= P[nbPrograms-1][MINUTE]))||(sunTime[HEURE] > P[nbPrograms-1][HEURE])||(sunTime[HEURE] < P[0][HEURE])||((sunTime[HEURE] == P[0][HEURE])  && (sunTime[MINUTE] < P[0][MINUTE]))){
         program = nbPrograms;
-      Serial.println("YES!");
+      //Serial.println("YES!");
+      }
     }
+  }
 }
-
-
 
 void setTempCible(){
   for (byte x = 0; x < nbPrograms; x++){
@@ -311,7 +311,6 @@ void setTempCible(){
     }
   }
 }
-
 
 float greenhouseTemperature() {
   float temp;
@@ -1255,7 +1254,14 @@ break;
     //-------------------------------SelectMenu5211-----------------------------------------
     //SET HOUR
     case 5211 :
-      if (y < Nbitems) {
+      t = rtc.getTime();
+      sunTime[HEURE] = t.hour;
+      myLord.DST(sunTime);
+        if ((t.hour != sunTime[HEURE]) && (y < Nbitems)) {
+        hr = y-1;
+        switchmenu(52111);
+      }
+      else if ((t.hour == sunTime[HEURE]) && (y < Nbitems)) {
         hr = y;
         switchmenu(52111);
       }
@@ -1268,7 +1274,7 @@ break;
     case 52111 :
       if (y < Nbitems) {
         mn = y - 1;
-        switchmenu(521111);
+        switchmenu(1311);
       }
       else {
         switchmenu(5);
@@ -1292,11 +1298,9 @@ break;
         tt = y-1;
         if (typ == CLOCK){
           defineProgram(nr,typ,hr,mn,tt);
-          switchmenu(5);
         }
         else{
           defineProgram(nr,typ,0,mod,tt);
-          switchmenu(5);
         }
       }
       else {
@@ -1304,4 +1308,4 @@ break;
       }
       break;
     }
-  }
+}
