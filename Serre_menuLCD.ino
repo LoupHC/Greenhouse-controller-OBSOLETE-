@@ -3,7 +3,6 @@
 //*****************LIBRAIRIES************************
 #include <EEPROM.h>
 #include <Wire.h>
-#include <LCD.h>
 #include <LiquidCrystal_I2C.h>
 #include <DS3231.h>
 #include <TimeLord.h>
