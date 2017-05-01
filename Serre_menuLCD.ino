@@ -14,14 +14,21 @@
 #define DS18B20
 //define SHT1X
 
-//Select your ouput pins
+#define NBROLLUPS 1
+#define NBHEATERS 1
+#define NBFANS 1
+#define NBPROGRAMS 5
+
+//Select your input pins
 #define LCDKEYPAD A0
 #define MENU_PIN 2
-const byte SAFETY_SWITCH[2] = {2,3};
-const byte ROLLUP_OPEN[1] = {4};
-const byte ROLLUP_CLOSE[1] = {5};
-const byte CHAUFFAGE[2] = {6,8}; // relais fournaise2
-const byte FAN[2] = {7,9}; // relais fournaise2
+const byte SAFETY_SWITCH[NBROLLUPS] = {3};
+
+//Select your output pins
+const byte ROLLUP_OPEN[NBROLLUPS] = {4};
+const byte ROLLUP_CLOSE[NBROLLUPS] = {5};
+const byte CHAUFFAGE[NBHEATERS] = {6};
+const byte FAN[NBFANS] = {7};
 
 //*********************OBJETS************************
 //---------------------LCD-----------------
@@ -53,21 +60,24 @@ TimeLord myLord; // TimeLord Object, Global variable
 //*********************VARIABLES GLOBALES*************
 //nombre d'items activés
 const int nbPrograms = 5;              //Nombre de programmes de température
-boolean rollups[1];
-boolean heaters[1];
-boolean fans[1];
-boolean fanSafety[sizeof(fans)];
-boolean rollupSafety[sizeof(rollups)];
+boolean rollups[NBROLLUPS] = {};
+boolean heaters[NBHEATERS] = {};
+boolean fans[NBFANS] = {};
+boolean fanSafety[NBFANS] = {};
+boolean rollupSafety[NBROLLUPS] = {};
 
 //Sonde de température
 boolean failedSensor = false;
 
 //Poisition des Rollups
-volatile byte incrementCounter[sizeof(rollups)];               //positionnement des rollups
-boolean firstOpening[sizeof(rollups)];
+volatile byte incrementCounter[NBROLLUPS] = {};               //positionnement des rollups
+boolean firstOpening[NBROLLUPS] = {};
 
 //Programmes horaire
-byte sunTime[6];                      //données de l'horloge
+byte sunTime[6] = {};                      //données de l'horloge
+byte sunRise[3] = {};
+byte sunSet[3] = {};
+byte P[nbPrograms][3] = {};
 byte program;                         //Programme en cour
 byte lastProgram;                    //Dernier programme en cour
 
@@ -93,7 +103,7 @@ byte laststate = 0;
 int menu = 0;
 //#items/menu
 byte Nbitems = 6;
-char* menuitems[10];
+char* menuitems[10] = {};
 int yr; byte mt; byte dy; byte hr; byte mn; byte sc;
 byte nr; byte inc; unsigned int rot; unsigned int p; int mod; byte hys; boolean sfty;
 byte typ; byte tt;
@@ -113,17 +123,16 @@ void setup() {
   initLCD(20,4);
   initTimeLord();
 
-  defineProgram(1, SR, 0, -30, 20);
-  defineProgram(2, SR, 0, 20, 21);
-  defineProgram(3, CLOCK, 11, 10, 22);
-  defineProgram(4, SS, 0, -60, 28);
-  defineProgram(5, SS, 0, -2, 18);
+  //defineProgram(1, SR, 0, -30, 20);
+  //defineProgram(2, SR, 0, 20, 21);
+  //defineProgram(3, CLOCK, 11, 10, 22);
+  //defineProgram(4, SS, 0, -60, 28);
+  //defineProgram(5, SS, 0, -2, 18);
 
-  defineRollup(1, 5, 1, 1, 0, 1, false);
-  defineFan(1, 2, 1, false);
-  defineHeater(1, -3, 1);
-  defineHeater(2, -5, 1);
-  defineRamping(5);
+  //defineRollup(1, 5, 1, 1, 0, 1, false);
+  //defineFan(1, 2, 1, false);
+  //defineHeater(1, -3, 1);
+  //defineRamping(5);
 
   initVariables();
   initOutputs();
@@ -131,11 +140,9 @@ void setup() {
   initRollupOutput(1, ROLLUP_OPEN[0], ROLLUP_CLOSE[0], LOW);
   initFanOutput(1,FAN[0], LOW);
   initHeaterOutput(1,CHAUFFAGE[0], LOW);
-  initHeaterOutput(2,CHAUFFAGE[1], LOW);
 
   pinMode(LCDKEYPAD, INPUT_PULLUP);
   pinMode(SAFETY_SWITCH[0], INPUT_PULLUP);
-  pinMode(SAFETY_SWITCH[1], INPUT_PULLUP);
   pinMode(MENU_PIN, INPUT_PULLUP);
   //Affichage LCD
   lcdDisplay();
@@ -163,10 +170,10 @@ void loop() {
     startRamping();
     //Protocoles spéciaux (pré-jour/pré-nuit) [VIDE]
     specialPrograms();
-    //Activation des relais
-    relayLogic();
     //Affichage LCD
     lcdDisplay();
+    //Activation des relais
+    relayLogic();
     //Pause entre chaque cycle
     delay(sleeptime);
   }
@@ -191,20 +198,19 @@ void initTimeLord(){
 
 void initOutputs(){
   //Activation des items
-  for (int x = 0; x < sizeof(rollups);x++){
+  for (int x = 0; x < NBROLLUPS;x++){
     rollups[x] = true;
     firstOpening[x] = true;
     rollupSafety[x] = rollupSafetyE(x);
     if (rollupSafety[x] == true) {
         attachInterrupt(digitalPinToInterrupt(SAFETY_SWITCH[0]), endOfTheRun0, FALLING);
-        attachInterrupt(digitalPinToInterrupt(SAFETY_SWITCH[1]), endOfTheRun1, FALLING);
     }
   }
-  for (int x = 0; x < sizeof(fans);x++){
+  for (int x = 0; x < NBFANS;x++){
     fans[x] = true;
     fanSafety[x] = fanSafetyE(x);
   }
-  for (int x = 0; x < sizeof(heaters);x++){
+  for (int x = 0; x < NBHEATERS;x++){
     heaters[x] = true;
   }
 }
@@ -212,14 +218,7 @@ void initOutputs(){
 void endOfTheRun0(){
   incrementCounter[0] = incrementsE(0);
 }
-void endOfTheRun1(){
-  byte x;
-  switch(sizeof(rollups)){
-    case 1 : x = 0;
-    case 2 : x = 1;
-  }
-  incrementCounter[x] = incrementsE(x);
-}
+
 
 void initVariables(){
   //Première lecture d'horloge pour définir le lever et coucher du soleil
@@ -244,48 +243,49 @@ void getDateAndTime(){
 }
 
 void selectProgram(){
-  //Définition des variables locales
-  int P[nbPrograms][3];
-  byte sunRise[3];
-  byte sunSet[3];
-
   //Exécution du programme
-  //Définit l'heure du lever et coucher du soleil
-  myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
-  myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
-  sunRise[HEURE] = sunTime[HEURE];
-  sunRise[MINUTE] = sunTime[MINUTE];
-  //Serial.print("lever du soleil :");Serial.print(sunRise[HEURE]);  Serial.print(":");  Serial.println(sunRise[MINUTE]);
-
-  /* Sunset: */
-  myLord.SunSet(sunTime); // Computes Sun Set. Prints:
-  myLord.DST(sunTime);
-  sunSet[HEURE] = sunTime[HEURE];
-  sunSet[MINUTE] = sunTime[MINUTE];
-  //Serial.print("coucher du soleil :");  Serial.print(sunSet[HEURE]);  Serial.print(":");  Serial.println(sunSet[MINUTE]);
+  setSunrise();
+  setSunset();
   getDateAndTime();
-  //Ajuste l'heure des programmes en fonction du lever et du coucher du soleil
+  setPrograms();
+  selectActualProgram();
+}
+
+void setPrograms(){
+  int PInt[nbPrograms][3] = {};
   for(byte x = 0; x < nbPrograms; x++){
     //Serial.println(x);Serial.println (programType[x]);
     if (programsE(x) == SR){
-      P[x][HEURE] = sunRise[HEURE];
-      P[x][MINUTE] = sunRise[MINUTE] + srmodE(x);
-      convertDecimalToTime(&P[x][HEURE], &P[x][MINUTE]);
+      PInt[x][HEURE] = sunRise[HEURE];
+      PInt[x][MINUTE] = sunRise[MINUTE] + srmodE(x);
+      convertDecimalToTime(&PInt[x][HEURE], &PInt[x][MINUTE]);
       //Serial.print(" Program ");Serial.print(x);Serial.print(" : ");Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
     }
     else if (programsE(x) == CLOCK){
-      P[x][HEURE] = PROGRAM_TIME(x, HEURE);
+      PInt[x][HEURE] = PROGRAM_TIME(x, HEURE);
       P[x][MINUTE] = PROGRAM_TIME(x, MINUTE);
       //Serial.print(" Program ");Serial.print(x);Serial.print(" : ");Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
     }
 
     else if (programsE(x) == SS){
-      P[x][HEURE] = sunSet[HEURE];
-      P[x][MINUTE] = sunSet[MINUTE] + ssmodE(x);
-      convertDecimalToTime(&P[x][HEURE], &P[x][MINUTE]);
+      PInt[x][HEURE] = sunSet[HEURE];
+      PInt[x][MINUTE] = sunSet[MINUTE] + ssmodE(x);
+      convertDecimalToTime(&PInt[x][HEURE], &PInt[x][MINUTE]);
       //Serial.print(" Program ");Serial.print(x); Serial.print(" : "); Serial.print(P[x][HEURE]);Serial.print(" : ");Serial.println(P[x][MINUTE]);
+    }
+  }
+  //Convert to byte
+  for(byte x = 0; x < nbPrograms; x++){
+      for(byte y = 0; y < 3; y++){
+        P[x][y] = (byte)PInt[x][y];
+      }
+  }
+}
 
-    //Sélectionne le programme en cour
+
+
+void selectActualProgram(){
+  //Sélectionne le programme en cour
     //Serial.print ("Heure actuelle ");Serial.print(" : ");Serial.print(sunTime[HEURE] );Serial.print(" : ");Serial.println(sunTime[MINUTE]);
     for (byte y = 0; y < (nbPrograms-1); y++){
     //Serial.print ("Programme "); Serial.print(y+1);Serial.print(" : ");Serial.print(P[y][HEURE]);Serial.print(" : ");Serial.println(P[y][MINUTE]);
@@ -293,14 +293,33 @@ void selectProgram(){
           program = y+1;
           //Serial.println("YES!");
         }
-      }
-      //  Serial.print ("Programme ");Serial.print(nbPrograms);Serial.print(" : ");Serial.print(P[nbPrograms-1][HEURE]);Serial.print(" : ");Serial.println(P[nbPrograms-1][MINUTE]);
-      if (((sunTime[HEURE] == P[nbPrograms-1][HEURE])  && (sunTime[MINUTE] >= P[nbPrograms-1][MINUTE]))||(sunTime[HEURE] > P[nbPrograms-1][HEURE])||(sunTime[HEURE] < P[0][HEURE])||((sunTime[HEURE] == P[0][HEURE])  && (sunTime[MINUTE] < P[0][MINUTE]))){
-        program = nbPrograms;
-      //Serial.println("YES!");
-      }
     }
-  }
+    //  Serial.print ("Programme ");Serial.print(nbPrograms);Serial.print(" : ");Serial.print(P[nbPrograms-1][HEURE]);Serial.print(" : ");Serial.println(P[nbPrograms-1][MINUTE]);
+    if (((sunTime[HEURE] == P[nbPrograms-1][HEURE])  && (sunTime[MINUTE] >= P[nbPrograms-1][MINUTE]))||(sunTime[HEURE] > P[nbPrograms-1][HEURE])||(sunTime[HEURE] < P[0][HEURE])||((sunTime[HEURE] == P[0][HEURE])  && (sunTime[MINUTE] < P[0][MINUTE]))){
+      program = nbPrograms;
+    //Serial.println("YES!");
+    }
+}
+
+
+void setSunrise(){
+  //Définit l'heure du lever et coucher du soleil
+  myLord.SunRise(sunTime); ///On détermine l'heure du lever du soleil
+  myLord.DST(sunTime);//ajuster l'heure du lever en fonction du changement d'heure
+  sunRise[HEURE] = sunTime[HEURE];
+  sunRise[MINUTE] = sunTime[MINUTE];
+  //Serial.print("lever du soleil :");Serial.print(sunRise[HEURE]);  Serial.print(":");  Serial.println(sunRise[MINUTE]);
+
+}
+
+void setSunset(){
+  /* Sunset: */
+  myLord.SunSet(sunTime); // Computes Sun Set. Prints:
+  myLord.DST(sunTime);
+  sunSet[HEURE] = sunTime[HEURE];
+  sunSet[MINUTE] = sunTime[MINUTE];
+  //Serial.print("coucher du soleil :");  Serial.print(sunSet[HEURE]);  Serial.print(":");  Serial.println(sunSet[MINUTE]);
+
 }
 
 void setTempCible(){
@@ -400,63 +419,65 @@ void startRamping(){
 
 void specialPrograms(){}
 
+float tempRollup(byte index){
+  return tempCible +rmodE(index);
+}         //Température d'activation des rollups (max.2)
+float tempHeater(byte index){
+  return tempCible + hmodE(index);
+}         //Température d'activation des fournaises (max.2)
+
+float tempFan(byte index){
+    return tempCible + vmodE(index);
+}         //Température d'activation des fans (max.2)
+
+
 void relayLogic(){                     //Température cible
-
-  float tempRollup[sizeof(rollups)];         //Température d'activation des rollups (max.2)
-  float tempHeater[sizeof(heaters)];         //Température d'activation des fournaises (max.2)
-  float tempFan[sizeof(fans)];                //Température d'activation des fans (max.2)
-
-  for(byte x = 0; x < sizeof(rollups); x++){
-    tempRollup[x] = tempCible + rmodE(x);
-  }
-  for(byte x = 0; x < sizeof(heaters); x++){
-    tempHeater[x] = tempCible + hmodE(x);
-  }
-  for(byte x = 0; x < sizeof(rollups); x++){
-    tempFan[x] = tempCible + vmodE(x);
-  }
-
   //Exécution du programme
   lcd.noBlink();
   //Programme d'ouverture/fermeture des rollups
-  for(byte x = 0; x < sizeof(rollups); x++){
+  for(byte x = 0; x < NBROLLUPS; x++){
     if (rollups[x] == true){
-      if (greenhouseTemperature() < (tempRollup[x] - rhystE(x))) {
+      if (greenhouseTemperature() < (tempRollup(x) - rhystE(x))) {
         closeSides(x);
-      } else if (greenhouseTemperature() > tempRollup[x]) {
+      } else if (greenhouseTemperature() > tempRollup(x)) {
         openSides(x);
       }
     }
   }
 
   //Programme fournaise
-  for(byte x = 0; x < sizeof(heaters); x++){
+  for(byte x = 0; x < NBHEATERS; x++){
     if (heaters[x] == true){
 
-      if ((greenhouseTemperature() < tempHeater[x])&&(incrementCounter[0] == 0)) {
+      if ((greenhouseTemperature() < tempHeater(x))&&(incrementCounter[0] == 0)) {
         digitalWrite(CHAUFFAGE[x], ON);
-      } else if ((greenhouseTemperature() > (tempHeater[x] + hhystE(x)))||(incrementCounter[0] != 0)) {
+      } else if ((greenhouseTemperature() > (tempHeater(x) + hhystE(x)))||(incrementCounter[0] != 0)) {
         digitalWrite(CHAUFFAGE[x], OFF);
       }
     }
   }
 
   //Programme ventilation forcée
-  for(byte x = 0; x < sizeof(fans); x++){
+  for(byte x = 0; x < NBFANS; x++){
     if (fans[x] == true){
       if (fanSafety[x] == true){
-        if (greenhouseTemperature() > tempFan[x]&&(digitalRead(SAFETY_SWITCH[0]) == OFF)){
+        Serial.println(fanSafety[x]);
+        if (greenhouseTemperature() > tempFan(x)&&(digitalRead(SAFETY_SWITCH[0]) == OFF)){
+          Serial.println(digitalRead(SAFETY_SWITCH[0]));
           digitalWrite(FAN[x], ON);
         }
-        else if ((greenhouseTemperature() < (tempFan[x] - vhystE(x)))||(digitalRead(SAFETY_SWITCH[0]) == ON)) {
+        else if ((greenhouseTemperature() < (tempFan(x) - vhystE(x)))||(digitalRead(SAFETY_SWITCH[0]) == ON)) {
+          Serial.println(digitalRead(SAFETY_SWITCH[0]));
           digitalWrite(FAN[x], OFF);
         }
       }
       else if (fanSafety[x] == false){
-        if (greenhouseTemperature() > tempFan[x]){
+        if (greenhouseTemperature() > tempFan(x)){
+                    Serial.println(digitalRead(SAFETY_SWITCH[0]));
           digitalWrite(FAN[x], ON);
         }
-        else if (greenhouseTemperature() < (tempFan[x] - vhystE(x))) {
+        else if (greenhouseTemperature() < (tempFan(x) - vhystE(x))) {
+                  Serial.println(digitalRead(SAFETY_SWITCH[0]));
           digitalWrite(FAN[x], OFF);
         }
       }
@@ -687,6 +708,34 @@ void clearPrintTitle() {
   lcd.setCursor(0, 0);
   lcd.print("**ROBOT-SERRE**V.1**");
 }
+
+void programPrintM(byte index){
+    lcd.noBlink();
+    clearPrintTitle();
+    lcd.setCursor(0, 1);lcd.print(F("Type: "));
+      switch(programsE(index)){
+        case SR: lcd.print(F("SUNRISE"));break;
+        case CLOCK: lcd.print(F("MANUAL"));break;
+        case SS: lcd.print(F("SUNSET"));break;
+      }
+    lcd.setCursor(0, 2);lcd.print(F("HD: "));lcdPrintDigits(P[index][HEURE]);lcd.print(F(":"));lcdPrintDigits(P[index][MINUTE]);
+    lcd.setCursor(9, 2);lcd.print(F("| HF: "));lcdPrintDigits(P[index+1][HEURE]);lcd.print(F(":"));lcdPrintDigits(P[index+1][MINUTE]);
+    lcd.setCursor(0, 3);lcd.print(F("Temp. cible: "));lcd.print(targetTempE(index));lcd.print(F("C"));
+}
+void programPrintE(byte index){
+    lcd.noBlink();
+    clearPrintTitle();
+    lcd.setCursor(0, 1);lcd.print(F("Type: "));
+      switch(programsE(index)){
+        case SR: lcd.print(F("SUNRISE"));break;
+        case CLOCK: lcd.print(F("MANUAL"));break;
+        case SS: lcd.print(F("SUNSET"));break;
+      }
+    lcd.setCursor(0, 2);lcd.print(F("HD: "));lcdPrintDigits(P[index][HEURE]);lcd.print(F(":"));lcdPrintDigits(P[index][MINUTE]);
+    lcd.setCursor(9, 2);lcd.print(F("| HF: "));lcdPrintDigits(P[0][HEURE]);lcd.print(F(":"));lcdPrintDigits(P[0][MINUTE]);
+    lcd.setCursor(0, 3);lcd.print(F("Temp. cible: "));lcd.print(targetTempE(index));lcd.print(F("C"));
+}
+
 //-----------------DISPLAY-------------------------
 //Scrollingmenu(Nbitems, Item1, item2, item3, item4, item5, Item6, item7, item8, item9, item10, currentMenuItem); //leave variable "Itemx" blank if it doesnt exist
 //Scrollingnumbers(Nbitems, currentMenuItem, starting number, multiplicator);
@@ -705,36 +754,36 @@ void displayMenu(int x) {
     case 1311: Scrollingnumbers("SEC**",62, currentMenuItem, 0, 1); break;
 
     case 2: Scrollingmenu("ROLL*", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 21: Scrollingmenu("ITEM*",(sizeof(rollups)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 22: Scrollingmenu("ITEM*",(sizeof(rollups)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 21: Scrollingmenu("ITEM*",(NBROLLUPS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 22: Scrollingmenu("ITEM*",(NBROLLUPS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
     case 221: Scrollingnumbers("INCR*",11, currentMenuItem, 1, 1); break;
-    case 2211: Scrollingnumbers("ROTA*", 61, currentMenuItem, 2, 2); break;
-    case 22111: Scrollingmenu("PAUSE", 10, "5", "15", "20", "30", "45", "60", "75", "90", "120", "back", currentMenuItem); break;
-    case 221111: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
-    case 2211111: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
-    case 22111111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 222: Scrollingnumbers("ROTA*", 61, currentMenuItem, 2, 2); break;
+    case 223: Scrollingmenu("PAUSE", 10, "5", "15", "20", "30", "45", "60", "75", "90", "120", "back", currentMenuItem); break;
+    case 224: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
+    case 225: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 226: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
 
     case 3: Scrollingmenu("FANS*", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 31: Scrollingmenu("ITEM*",(sizeof(fans)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 32: Scrollingmenu("ITEM*",(sizeof(fans)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 31: Scrollingmenu("ITEM*",(NBFANS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 32: Scrollingmenu("ITEM*",(NBFANS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
     case 321: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
-    case 3211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
-    case 32111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 322: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 323: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
 
     case 4: Scrollingmenu("HEATR", 3, "Parameters", "setParameters", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 41: Scrollingmenu("ITEM*",(sizeof(heaters)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
-    case 42: Scrollingmenu("ITEM*",(sizeof(heaters)+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 41: Scrollingmenu("ITEM*",(NBHEATERS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 42: Scrollingmenu("ITEM*",(NBHEATERS+1),"1", "2", "back", "", "", "", "",  "", "", "", currentMenuItem);break;
     case 421: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
-    case 4211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 422: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
 
     case 5: Scrollingmenu("PROG*", 3, "Timezones", "setTimezones", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
     case 51: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
     case 52: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
     case 521: Scrollingmenu("ITEM*", 3,"SR", "MANUAL", "SS", "", "", "", "",  "", "", "", currentMenuItem);break;
-    case 5211: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
-    case 52111: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
-    case 5212: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
-    case 521111: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
+    case 5221: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
+    case 5222: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
+    case 523: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
+    case 524: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
 
   }
 }
@@ -750,6 +799,9 @@ void switchmenu(int x) {
 }
 
 void selectMenu(int x, int y) {
+
+  int P[nbPrograms][3];
+
   switch (x) {
     //------------------------------SelectrootMenu-------------------------------------
     //"Temperature/humidex","Date/time","Rollups","Ventilation","Chauffage"
@@ -929,64 +981,64 @@ void selectMenu(int x, int y) {
     case 221 :
       if (y < Nbitems) {
         inc = y;
-        switchmenu(2211);
+        switchmenu(222);
       }
       else {
         switchmenu(2);
       }
       break;
-    //-------------------------------SelectMenu2211-----------------------------------------
+    //-------------------------------SelectMenu222-----------------------------------------
     //SET ROTATION TIME
-    case 2211 :
+    case 222 :
       if (y < Nbitems) {
         rot = y*2;
-        switchmenu(22111);
+        switchmenu(223);
       }
       else {
         switchmenu(2);
       }
       break;
-      //-------------------------------SelectMenu22111-----------------------------------------
+      //-------------------------------SelectMenu223-----------------------------------------
       //SET PAUSE TIME
-      case 22111 :
+      case 223 :
         switch (y) {
-          case 1: p = 5; switchmenu(221111);break;
-          case 2: p = 15; switchmenu(221111); break;
-          case 3: p = 20; switchmenu(221111); break;
-          case 4: p = 30; switchmenu(221111); break;
-          case 5: p = 45; switchmenu(221111); break;
-          case 6: p = 60; switchmenu(221111); break;
-          case 7: p = 75; switchmenu(221111); break;
-          case 8: p = 90; switchmenu(221111); break;
-          case 9: p = 120; switchmenu(221111); break;
+          case 1: p = 5; switchmenu(224);break;
+          case 2: p = 15; switchmenu(224); break;
+          case 3: p = 20; switchmenu(224); break;
+          case 4: p = 30; switchmenu(224); break;
+          case 5: p = 45; switchmenu(224); break;
+          case 6: p = 60; switchmenu(224); break;
+          case 7: p = 75; switchmenu(224); break;
+          case 8: p = 90; switchmenu(224); break;
+          case 9: p = 120; switchmenu(224); break;
           case 10: switchmenu(2); break;
           }
         break;
-      //-------------------------------SelectMenu221111-----------------------------------------
+      //-------------------------------SelectMenu224-----------------------------------------
       //SET MODIFICATOR
-      case 221111 :
+      case 224 :
         if (y < Nbitems) {
           mod = y-11;
-          switchmenu(2211111);
+          switchmenu(225);
         }
         else {
           switchmenu(2);
         }
       break;
-      //-------------------------------SelectMenu221111-----------------------------------------
+      //-------------------------------SelectMenu224-----------------------------------------
       //SET HYSTERESIS
-      case 2211111 :
+      case 225 :
         if (y < Nbitems) {
           hys = y;
-          switchmenu(22111111);
+          switchmenu(226);
         }
         else {
           switchmenu(2);
         }
       break;
-      //-------------------------------SelectMenu221111-----------------------------------------
+      //-------------------------------SelectMenu224-----------------------------------------
       //SET SAFETY AND UPDATE EEPROM
-      case 22111111 :
+      case 226 :
         switch (y){
           case 1: sfty = true;defineRollup(nr,inc,rot,p,mod,hys,sfty); switchmenu(2);break;
           case 2: sfty = false;defineRollup(nr,inc,rot,p,mod,hys,sfty); switchmenu(2);break;
@@ -995,11 +1047,11 @@ void selectMenu(int x, int y) {
       break;
     //-------------------------------SelectMenu31-----------------------------------------
   /*  case 3: Scrollingmenu("FANS*", 3, "Program", "setProgram", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 31: Scrollingnumbers("#****",(sizeof(fans)+1), currentMenuItem, 1, 1); break;
-    case 32: Scrollingnumbers("#****", (sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 31: Scrollingnumbers("#****",(NBFANS+1), currentMenuItem, 1, 1); break;
+    case 32: Scrollingnumbers("#****", (NBFANS+1), currentMenuItem, 1, 1); break;
     case 321: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
-    case 3211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
-    case 32111: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
+    case 322: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 323: Scrollingmenu("SAFTY", 3, "Oui", "Non", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
 */
 
 //-------------------------------SelectMenu3-----------------------------------------
@@ -1009,8 +1061,7 @@ case 3 :
     case 1:
       switchmenu(31); break;
     case 2:
-      if (sizeof(rollups) == 2){switchmenu(32);}
-      else{switchmenu(0);}
+      switchmenu(32);
       break;
     case 3: switchmenu(0); break;
   }
@@ -1055,26 +1106,26 @@ break;
     case 321 :
       if (y < Nbitems) {
         mod = y-11;
-        switchmenu(3211);
+        switchmenu(322);
       }
       else {
         switchmenu(2);
       }
       break;
-    //-------------------------------SelectMenu3211-----------------------------------------
+    //-------------------------------SelectMenu322-----------------------------------------
     //SET HYSTERESIS
-    case 3211 :
+    case 322 :
       if (y < Nbitems) {
         hys = y;
-        switchmenu(32111);
+        switchmenu(323);
       }
       else {
         switchmenu(2);
       }
       break;
-      //-------------------------------SelectMenu321111-----------------------------------------
+      //-------------------------------SelectMenu3231-----------------------------------------
       //SET SAFETY AND UPDATE EEPROM
-      case 32111 :
+      case 323 :
         switch (y){
           case 1: sfty = true;defineFan(nr,mod,hys,sfty); switchmenu(3);break;
           case 2: sfty = false;defineFan(nr,mod,hys,sfty); switchmenu(3);break;
@@ -1083,10 +1134,10 @@ break;
       break;
 
 /*  case 4: Scrollingmenu("HEATR", 3, "Program", "setProgram", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-    case 41: Scrollingnumbers("ITEM*",(sizeof(fans)+1), currentMenuItem, 1, 1); break;
-    case 42: Scrollingnumbers("ITEM*", (sizeof(fans)+1), currentMenuItem, 1, 1); break;
+    case 41: Scrollingnumbers("ITEM*",(NBFANS+1), currentMenuItem, 1, 1); break;
+    case 42: Scrollingnumbers("ITEM*", (NBFANS+1), currentMenuItem, 1, 1); break;
     case 421: Scrollingnumbers("MOD**", 22, currentMenuItem, -10, 1); break;
-    case 4211: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
+    case 422: Scrollingnumbers("HYST*", 6, currentMenuItem, 1, 1); break;
 */
 
 //-------------------------------SelectMenu4-----------------------------------------
@@ -1096,7 +1147,7 @@ case 4 :
     case 1:
       switchmenu(41); break;
     case 2:
-      if (sizeof(fans) == 2){switchmenu(42);}
+      if (NBFANS == 2){switchmenu(42);}
       else{switchmenu(0);}
       break;
     case 3: switchmenu(0); break;
@@ -1140,15 +1191,15 @@ break;
     case 421 :
       if (y < Nbitems) {
         mod = y-11;
-        switchmenu(4211);
+        switchmenu(422);
       }
       else {
         switchmenu(4);
       }
       break;
-    //-------------------------------SelectMenu4211-----------------------------------------
+    //-------------------------------SelectMenu422-----------------------------------------
     //SET HYSTERESIS
-    case 4211 :
+    case 422 :
       if (y < Nbitems) {
         hys = y;
         defineHeater(nr,mod,hys);
@@ -1160,13 +1211,13 @@ break;
       break;
       /*
       case 5: Scrollingmenu("PROG*", 3, "Timezones", "setTimezones", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
-      case 51: Scrollingnumbers("TIMZ*",(sizeof(nbPrograms)+1),currentMenuItem, 1, 1);break;
-      case 52: Scrollingnumbers("TIMZ*",(sizeof(nbPrograms)+1),currentMenuItem, 1, 1);break;
+      case 51: Scrollingnumbers("TIMZ*",(NBPROGRAMS+1),currentMenuItem, 1, 1);break;
+      case 52: Scrollingnumbers("TIMZ*",(NBPROGRAMS+1),currentMenuItem, 1, 1);break;
       case 521: Scrollingmenu("ITEM*", 3,"SR", "MANUAL", "SS", "", "", "", "",  "", "", "", currentMenuItem);break;
-      case 5211: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
-      case 52111: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
-      case 5212: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
-      case 521111: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
+      case 5221: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
+      case 523: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
+      case 5222: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
+      case 524: Scrollingnumbers("TEMP", 42, currentMenuItem, 0, 1);break;
 */
       //-------------------------------SelectMenu5-----------------------------------------
       //État, setProgram
@@ -1175,19 +1226,19 @@ break;
           case 1:
             switchmenu(51); break;
           case 2:
-            if (sizeof(nbPrograms) >= 2){switchmenu(52);}
+            if (NBPROGRAMS >= 2){switchmenu(52);}
             else{switchmenu(0);}
             break;
           case 3:
-            if (sizeof(nbPrograms) >= 3){switchmenu(52);}
+            if (NBPROGRAMS >= 3){switchmenu(52);}
             else{switchmenu(0);}
             break;
           case 4:
-            if (sizeof(nbPrograms) >= 4){switchmenu(52);}
+            if (NBPROGRAMS >= 4){switchmenu(52);}
             else{switchmenu(0);}
             break;
           case 5:
-            if (sizeof(nbPrograms) >= 5){switchmenu(52);}
+            if (NBPROGRAMS >= 5){switchmenu(52);}
             else{switchmenu(0);}
             break;
           case 6: switchmenu(0); break;
@@ -1195,41 +1246,60 @@ break;
       break;
 
       //-------------------------------SelectMenu41-----------------------------------------
-    //PROGRAMME DES TIMEZONES
-    case 51 :
-        switch(y){
-          case 1 :
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1);
-          lcd.setCursor(0, 2);
-          break;
-          case 2 :
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1);
-          lcd.setCursor(0, 2);
-          case 3 :
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1);
-          lcd.setCursor(0, 2);
-          case 4 :
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1);
-          lcd.setCursor(0, 2);
-          case 5 :
-          lcd.noBlink();
-          clearPrintTitle();
-          lcd.setCursor(0, 1);
-          lcd.setCursor(0, 2);
-          break;
-          case 6 :
-          switchmenu(5);
-          break;
-        }
-      break;
+
+      //PROGRAMME DES TIMEZONES
+      case 51 :
+          switch(y){
+            case 1 :
+              if (nbPrograms > 1){
+                programPrintM(0);
+              }
+              else if(nbPrograms == 1){
+                programPrintE(0);
+              }
+              else{switchmenu(5);}
+            break;
+            case 2 :
+              if (nbPrograms > 2){
+                programPrintM(1);
+              }
+              else if(nbPrograms == 2){
+                programPrintE(1);
+              }
+              else{switchmenu(5);}
+            break;
+            case 3 :
+              if (nbPrograms > 3){
+                programPrintM(2);
+              }
+              else if(nbPrograms == 3){
+                programPrintE(2);
+              }
+              else{switchmenu(5);}
+            break;
+            case 4 :
+              if (nbPrograms > 4){
+                programPrintM(3);
+              }
+              else if(nbPrograms == 4){
+                programPrintE(3);
+              }
+              else{switchmenu(5);}
+            break;
+            case 5 :
+              if (nbPrograms > 5){
+                programPrintM(4);
+              }
+              else if(nbPrograms == 5){
+                programPrintE(4);
+              }
+              else{switchmenu(5);}
+            break;
+            case 6 :
+              switchmenu(5);
+            break;
+          }
+        break;
     //-------------------------------SelectMenu52-----------------------------------------
     //SET TIMEZONES PROGRAM
     case 52 :
@@ -1245,62 +1315,59 @@ break;
     //SET TYPE
     case 521 :
       switch(y){
-        case 1:typ = SR;switchmenu(5212);break;
-        case 2:typ = CLOCK;switchmenu(5211);break;
-        case 3:typ = SS;switchmenu(5212);break;
+        case 1:typ = SR;switchmenu(5222);break;
+        case 2:typ = CLOCK;switchmenu(5221);break;
+        case 3:typ = SS;switchmenu(5222);break;
         case 4:switchmenu(5);break;
       }
       break;
-    //-------------------------------SelectMenu5211-----------------------------------------
+    //-------------------------------SelectMenu5221-----------------------------------------
     //SET HOUR
-    case 5211 :
-      t = rtc.getTime();
-      sunTime[HEURE] = t.hour;
-      myLord.DST(sunTime);
-        if ((t.hour != sunTime[HEURE]) && (y < Nbitems)) {
-        hr = y-1;
-        switchmenu(52111);
-      }
-      else if ((t.hour == sunTime[HEURE]) && (y < Nbitems)) {
+    case 5221 :
+      if (y < Nbitems) {
         hr = y;
-        switchmenu(52111);
+        switchmenu(523);
       }
       else{
         switchmenu(5);
       }
       break;
-    //-------------------------------SelectMenu52111-----------------------------------------
+    //-------------------------------SelectMenu523-----------------------------------------
     //SET MINUTES
-    case 52111 :
+    case 523 :
       if (y < Nbitems) {
         mn = y - 1;
-        switchmenu(521111);
+        switchmenu(524);
       }
       else {
         switchmenu(5);
       }
       break;
-    //-------------------------------SelectMenu5212-----------------------------------------
+    //-------------------------------SelectMenu5222-----------------------------------------
     //SET MOD
-    case 5212 :
+    case 5222 :
       if (y < Nbitems) {
         mod = y-60;
-        switchmenu(521111);
+        switchmenu(524);
       }
       else {
         switchmenu(5);
       }
     break;
-    //-------------------------------SelectMenu521111-----------------------------------------
+    //-------------------------------SelectMenu524-----------------------------------------
     //SET TEMP CIBLE AND UPDATE EEPROM
-    case 521111 :
+    case 524 :
       if (y < Nbitems) {
         tt = y-1;
         if (typ == CLOCK){
           defineProgram(nr,typ,hr,mn,tt);
+          setPrograms();
+            switchmenu(5);
         }
         else{
           defineProgram(nr,typ,0,mod,tt);
+          setPrograms();
+            switchmenu(5);
         }
       }
       else {
