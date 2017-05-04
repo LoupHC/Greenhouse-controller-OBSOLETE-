@@ -127,12 +127,12 @@ void setup() {
   //defineProgram(2, SR, 0, 20, 21);
   //defineProgram(3, CLOCK, 11, 10, 22);
   //defineProgram(4, SS, 0, -60, 28);
-  //defineProgram(5, SS, 0, -2, 18);
+  //defineProgram(5, SS, 0, 0, 18);
 
-  //defineRollup(1, 5, 1, 1, 0, 1, false);
-  //defineFan(1, 2, 1, false);
+  //defineRollup(1, 5, 5, 1, 0, 1, true);
+  //defineFan(1, 2, 1, true);
   //defineHeater(1, -3, 1);
-  //defineRamping(5);
+  defineRamping(10);
 
   initVariables();
   initOutputs();
@@ -228,7 +228,6 @@ void initVariables(){
   //Définition de la température cible
   setTempCible();
   //Définition de la température d'activation des sorties
-  //getTemperature();
 }
 
 void getDateAndTime(){
@@ -400,8 +399,8 @@ void startRamping(){
 
   if (newTempCible > tempCible){
     unsigned long rampingCounter = millis();
-    Serial.println(rampingCounter);
-    Serial.println(rampingCounter - lastCount);
+    //Serial.println(rampingCounter);
+    //Serial.println(rampingCounter - lastCount);
     if(rampingCounter - lastCount > rampingE()) {
       lastCount = rampingCounter;
       tempCible += 0.5;
@@ -543,16 +542,17 @@ void lcdPrintRollups(){
     lcd.setCursor(5, 1); lcd.print(incrementCounter[0]);
  }
 void lcdPrintTemp(){
+    float temperature = greenhouseTemperature();
     lcd.setCursor(0,0); lcd.print(F("         "));
     if(failedSensor == false){
-      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print(greenhouseTemperature()); lcd.print(F("C"));
+      lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print(temperature); lcd.print(F("C"));
     }
     else{
       lcd.setCursor(0,0); lcd.print(F("T:")); lcd.print("!!!"); lcd.print(F("("));lcd.print((int)greenhouseTemperature());lcd.print(F(")"));
     }
 }
 void lcdPrintTempCible(){
-    lcd.setCursor(9,0);lcd.print("|TC:");lcd.print(tempCible); lcd.print(F("C"));
+    lcd.setCursor(9,0);lcd.print("|TC:");lcd.print(tempCible); lcd.print(F("C "));
 }
 void lcdPrintTime(){
     lcd.setCursor(9,1); lcd.print(F("|(P")); lcd.print(program); lcd.print(F(":"));
@@ -608,7 +608,7 @@ void Menu(int x) {
   }
 
   int a = analogRead(A0);
-  Serial.println(a);
+  //Serial.println(a);
   buttonState(a);
 
   if ((state == 3) && (state != laststate)) {
@@ -779,7 +779,7 @@ void displayMenu(int x) {
     case 5: Scrollingmenu("PROG*", 3, "Timezones", "setTimezones", "back", "", "", "", "",  "", "", "", currentMenuItem); break;
     case 51: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
     case 52: Scrollingnumbers("TIMZ*",(nbPrograms+1),currentMenuItem, 1, 1);break;
-    case 521: Scrollingmenu("ITEM*", 3,"SR", "MANUAL", "SS", "", "", "", "",  "", "", "", currentMenuItem);break;
+    case 521: Scrollingmenu("ITEM*", 4,"SR", "MANUAL", "SS", "back", "", "", "",  "", "", "", currentMenuItem);break;
     case 5221: Scrollingnumbers("HOUR*",25, currentMenuItem, 1, 1); break;
     case 5222: Scrollingnumbers("MOD***",122, currentMenuItem, -60 , 1); break;
     case 523: Scrollingnumbers("MIN***",62, currentMenuItem, 0 , 1); break;
@@ -799,8 +799,6 @@ void switchmenu(int x) {
 }
 
 void selectMenu(int x, int y) {
-
-  int P[nbPrograms][3];
 
   switch (x) {
     //------------------------------SelectrootMenu-------------------------------------
@@ -1226,22 +1224,8 @@ break;
           case 1:
             switchmenu(51); break;
           case 2:
-            if (NBPROGRAMS >= 2){switchmenu(52);}
-            else{switchmenu(0);}
-            break;
-          case 3:
-            if (NBPROGRAMS >= 3){switchmenu(52);}
-            else{switchmenu(0);}
-            break;
-          case 4:
-            if (NBPROGRAMS >= 4){switchmenu(52);}
-            else{switchmenu(0);}
-            break;
-          case 5:
-            if (NBPROGRAMS >= 5){switchmenu(52);}
-            else{switchmenu(0);}
-            break;
-          case 6: switchmenu(0); break;
+            switchmenu(52); break;
+          case 3: switchmenu(0); break;
         }
       break;
 
@@ -1338,6 +1322,7 @@ break;
       if (y < Nbitems) {
         mn = y - 1;
         switchmenu(524);
+        Serial.println(mn);
       }
       else {
         switchmenu(5);
